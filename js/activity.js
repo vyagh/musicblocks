@@ -4305,6 +4305,13 @@ class Activity {
          * When turtle stops running restore stop button to normal state
          */
         this.onStopTurtle = () => {
+            // Disable stop button when playback ends
+            const stopIcon = docById("stop");
+            if (stopIcon) {
+                stopIcon.style.pointerEvents = "none";
+                stopIcon.classList.add("grey-text", "inactiveLink");
+                stopIcon.style.color = "white";
+            }
             // TODO: plugin support
         };
 

@@ -227,8 +227,9 @@ describe("Toolbar Class", () => {
                 addEventListener: jest.fn()
             },
             stop: {
-                style: { color: "" },
-                addEventListener: jest.fn()
+                style: { color: "", pointerEvents: "" },
+                addEventListener: jest.fn(),
+                classList: { add: jest.fn(), remove: jest.fn() }
             },
             record: {
                 className: ""
@@ -250,6 +251,7 @@ describe("Toolbar Class", () => {
 
         expect(mockOnClick).toHaveBeenCalledWith(mockActivity);
         expect(elements.stop.style.color).toBe(toolbar.stopIconColorWhenPlaying);
+        expect(elements.stop.style.pointerEvents).toBe("auto");
         expect(global.saveButtonAdvanced.disabled).toBe(true);
         expect(global.saveButton.className).toBe("grey-text inactiveLink");
         expect(elements.record.className).toBe("grey-text inactiveLink");
@@ -264,7 +266,11 @@ describe("Toolbar Class", () => {
     });
 
     test("renderStopIcon sets onclick and updates stop button behavior", () => {
-        const stopIcon = { onclick: null, style: { color: "" } };
+        const stopIcon = {
+            onclick: null,
+            style: { color: "", pointerEvents: "" },
+            classList: { add: jest.fn(), remove: jest.fn() }
+        };
         const recordButton = { className: "recording" };
 
         global.docById.mockImplementation(id =>
@@ -278,6 +284,7 @@ describe("Toolbar Class", () => {
 
         expect(mockOnClick).toHaveBeenCalled();
         expect(stopIcon.style.color).toBe("white");
+        expect(stopIcon.style.pointerEvents).toBe("none");
         expect(global.saveButton.disabled).toBe(false);
         expect(global.saveButtonAdvanced.disabled).toBe(false);
         expect(global.saveButton.className).toBe("");

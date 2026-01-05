@@ -407,6 +407,8 @@ class Toolbar {
             onclick(this.activity);
             handleClick();
             stopIcon.style.color = this.stopIconColorWhenPlaying;
+            stopIcon.style.pointerEvents = "auto";
+            stopIcon.classList.remove("grey-text", "inactiveLink");
             saveButton.disabled = true;
             saveButtonAdvanced.disabled = true;
             saveButton.className = "grey-text inactiveLink";
@@ -436,9 +438,16 @@ class Toolbar {
     renderStopIcon(onclick) {
         const stopIcon = docById("stop");
         const recordButton = docById("record");
+
+        // Initially disable stop button until play is triggered
+        stopIcon.style.pointerEvents = "none";
+        stopIcon.classList.add("grey-text", "inactiveLink");
+
         stopIcon.onclick = () => {
             onclick(this.activity);
             stopIcon.style.color = "white";
+            stopIcon.style.pointerEvents = "none";
+            stopIcon.classList.add("grey-text", "inactiveLink");
             saveButton.disabled = false;
             saveButtonAdvanced.disabled = false;
             saveButton.className = "";
