@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 
 STALE_DAYS = 90
 TITLE_MAX = 72
+AREA_ORDER = ["Music & UI", "Blocks & Runtime", "Tests & CI", "Planet", "Docs & i18n", "Governance", "General JS", "Other"]
 HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
 BLOCKER_LABELS = ["needs-rebase"]    # labels that mean the author has to act
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
@@ -245,7 +246,7 @@ def users(logins):
 def table(entries, last_col="Age", last_key="age"):
     if not entries:
         return "_Nothing here._"
-    head = f"| PR | Waiting for | Author | {last_col} |\n|---|---|---|---:|"
+    head = f"| Pull request | Waiting for | {last_col} |\n|---|---|---:|"
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
@@ -254,8 +255,8 @@ def table(entries, last_col="Age", last_key="age"):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{', '.join(e['areas'])}</sub> "
-                    f"| {e['waiting']} | @{e['author']} | {age} |")
+        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{' · '.join(e['areas'])} · @{e['author']}</sub> "
+                    f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -281,46 +282,53 @@ def render(prs, source_repo, rules):
         for a in e["areas"]:
             by_area[a].append(e)
 
+    def count(n):
+        return f"{n} pull request" + ("" if n == 1 else "s")
+
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
         "| Ready to merge | On hold | In review | With authors | Stale | Drafts |",
         "|:---:|:---:|:---:|:---:|:---:|:---:|",
-        f"| **{len(ready)}** | **{len(hold)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
+        f"| [**{len(ready)}**](#ready-to-merge) | [**{len(hold)}**](#on-hold) | [**{len(review)}**](#in-review) "
+        f"| [**{len(authors)}**](#with-authors) | [**{len(stale)}**](#stale) | {drafts} |",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
         "",
-        details(f"Show &nbsp;·&nbsp; {len(ready)}", table(ready), open_=True),
+        details(count(len(ready)), table(ready), open_=True),
         "",
         "## On hold",
         f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
         "",
-        details(f"Show &nbsp;·&nbsp; {len(hold)}", table(hold), open_=True),
+        details(count(len(hold)), table(hold), open_=True),
         "",
         "## In review",
-        "*Waiting on a reviewer. The full list, then the same PRs by area with that area's code owners.*",
+        "*Waiting on a reviewer, by area. The people on each heading are that area's code owners.*",
         "",
-        details(f"All &nbsp;·&nbsp; {len(review)}", table(review), open_=True),
     ]
-    for area, items in sorted(by_area.items(), key=lambda kv: -len(kv[1])):
+    ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
+    if not ordered_areas:
+        out += ["_Nothing here._", ""]
+    for area in ordered_areas:
+        items = by_area[area]
         owners = sorted({o for e in items for o in e["area_owners"][area]})
-        label = f"{area} &nbsp;·&nbsp; {len(items)}" + (f" &nbsp;&nbsp;<sub>{users(owners)}</sub>" if owners else "")
-        out.append(details(label, table(items)))
+        out += [f"### {area} · {len(items)}" + (f" &nbsp;<sub>{users(owners)}</sub>" if owners else ""), "",
+                details(count(len(items)), table(items), open_=True)]
     out += [
         "",
         "## With authors",
         "*Changes requested, CI failing, merge conflict, needs rebase, or an unanswered question from a reviewer.*",
         "",
-        details(f"Show &nbsp;·&nbsp; {len(authors)}", table(authors)),
+        details(count(len(authors)), table(authors)),
         "",
         "## Stale",
         f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
         "",
-        details(f"Show &nbsp;·&nbsp; {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
+        details(count(len(stale)), table(stale, last_col="Idle", last_key="idle")),
         "",
         "---",
-        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Status comes from GitHub's review decision, CI result, "
+        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Grouping comes from GitHub's review decision, CI result, "
         "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
         "Idle is days since the author last pushed or commented.</sub>",
     ]
