@@ -305,6 +305,10 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
     return "\n".join([head, *rows])
 
 
+def heading(title, blurb):
+    return f"## {title} &nbsp;<sub>{blurb}</sub>"
+
+
 def details(summary, body, open_=False):
     tag = "<details open>" if open_ else "<details>"
     return f"{tag}\n<summary>{summary}</summary>\n\n{body}\n\n</details>\n"
@@ -338,12 +342,12 @@ def render(prs, source_repo, rules):
 
     def badge(label, n, color):
         text = label.replace(" ", "_").replace("-", "--")
-        return f'<img alt="{label}: {n}" src="https://img.shields.io/badge/{text}-{n}-{color}?style=flat-square">'
+        return f'<img alt="{label}: {n}" src="https://img.shields.io/badge/{text}-{n}-{color}?style=for-the-badge">'
 
     out = [
         '<p align="center">',
-        f'  <strong>{source_repo}</strong> · open pull requests by who acts next<br>',
-        f"  <sub>updated daily · {NOW.strftime('%Y-%m-%d')}</sub>",
+        f'  <strong>{source_repo}</strong> · open pull requests<br>',
+        f"  <sub>{NOW.strftime('%Y-%m-%d')}</sub>",
         "</p>",
         '<p align="center">',
         "  " + " ".join([
@@ -355,64 +359,55 @@ def render(prs, source_repo, rules):
         ]),
         "</p>",
         "",
-        "## Ready to merge",
-        "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
+        heading("Ready to merge", "approved, CI green, no conflicts"),
         "",
         section(ready, open_=True),
         "",
-        "## In review",
-        "*Waiting on a reviewer, by area. Each PR is listed once, under the most specific area it touches. "
-        "Waiting is days since the author last pushed or commented.*",
+        heading("In review", "waiting on a reviewer"),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
-    if load:
-        out += ["Per reviewer: " + " · ".join(f"{u} **{n}**" for u, n in load.most_common()), ""]
+    people = set(load) | {u for owners in owners_by_area.values() for u in owners}
+    areas_of = defaultdict(list)
+    for area in AREA_ORDER:
+        for u in owners_by_area.get(area, ()):
+            areas_of[u].append(area)
+    rows = ["| Reviewer | Code owner for | In queue |", "|---|---|---:|"]
+    for u in sorted(people, key=lambda u: (-load[u], u)):
+        rows.append(f"| @{u} | {', '.join(areas_of[u]) or '—'} | {load[u]} |")
+    out += rows + [""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
     if not ordered_areas:
         out += ["_Nothing here._", ""]
-    else:
-        pass
-    legend = " · ".join(f"{a}: {mentions(sorted(owners_by_area[a]))}" for a in AREA_ORDER if owners_by_area.get(a))
-    out += [f"<sub>Code owners — {legend}</sub>", ""]
     for area in ordered_areas:
         items = by_area[area]
         out += [f"### {area}", "",
                 section(items, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers")]
     out += [
         "",
-        "## With authors",
-        "*Changes requested, CI failing, merge conflict, or an unanswered question from a reviewer.*",
+        heading("With authors", "blocked until the author acts"),
         "",
         breakdown(authors),
         "",
         section(authors, mid_col="Blocked by"),
         "",
-        "## On hold",
-        f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
+        heading("On hold", ", ".join(f"<code>{l}</code>" for l in HOLD_LABELS)),
         "",
         section(hold),
         "",
-        "## Stale",
-        f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
+        heading("Stale", f"author silent {STALE_DAYS}+ days"),
         "",
         breakdown(stale),
         "",
         section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
-        "## Automated",
-        "*Opened by bots (dependency bumps, release chores).*",
+        heading("Automated", "opened by bots"),
         "",
         section(bots),
         "",
-        "> [!NOTE]",
-        f"> **How this is grouped.** Ready to merge: approved by a code owner, CI green, no conflicts. "
-        "With authors: changes requested, CI failing, merge conflict, or a reviewer's comment newer than the author's last push. "
-        f"Stale: with authors and silent {STALE_DAYS}+ days. On hold: labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}. "
-        "Waiting / Idle: days since the author last pushed or commented. Ages past 60 days are bold. "
-        f"Drafts ({drafts}) and reviewers without CODEOWNERS entries are not shown.",
+        f"<sub>Waiting / Idle = days since the author last pushed or commented · Age = days since opened · {drafts} drafts not shown</sub>",
     ]
     return "\n".join(out)
 
