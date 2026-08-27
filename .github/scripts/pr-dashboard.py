@@ -211,7 +211,8 @@ def evaluate(pr, rules):
 
 
 def users(logins):
-    return ", ".join(f"@{u}" for u in logins)
+    # Backticks keep these from becoming live @mentions; the dashboard must never notify people.
+    return ", ".join(f"`{u}`" for u in logins)
 
 
 def table(entries, last_col="Age", last_key="age"):
@@ -224,7 +225,7 @@ def table(entries, last_col="Age", last_key="age"):
         title = e["title"].replace("|", "\\|")
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | `{e['author']}` "
                     f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
