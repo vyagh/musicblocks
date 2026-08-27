@@ -357,6 +357,9 @@ def render(prs, source_repo, rules):
         "Waiting is days since the author last pushed or commented.*",
         "",
     ]
+    load = Counter(u for e in review for u in e["reviewers"])
+    if load:
+        out += ["Per reviewer: " + " · ".join(f"{u} **{n}**" for u, n in load.most_common()), ""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
