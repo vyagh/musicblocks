@@ -222,9 +222,9 @@ def evaluate(pr, rules):
     if ci in ("FAILURE", "ERROR"):
         blockers.append("`CI failing`")
     if changes_by:
-        blockers.append("`changes requested` " + users(changes_by))
+        blockers.append("`changes requested` by " + users(changes_by))
     if not blockers and last_other and last_other[0] > last_author_activity:
-        blockers.append("`reply to` " + users([last_other[1]]))
+        blockers.append("`reply to` " + last_other[1])
 
     kinds = []
     if conflict: kinds.append("merge conflict")
@@ -237,13 +237,14 @@ def evaluate(pr, rules):
     elif blockers:
         route, waiting = "author", " ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
-        route, waiting = "ready", "`approved` " + users(approved_by)
+        route, waiting = "ready", "`approved` by " + users(approved_by)
     else:
         route = "review"
         if requested:
-            waiting, reviewers = "`review requested`", requested
+            waiting, reviewers = users(requested), requested
         elif reviews:
-            waiting, reviewers = "`re-review`", sorted({r["author"]["login"] for r in reviews})
+            reviewers = sorted({r["author"]["login"] for r in reviews})
+            waiting = users(reviewers) + " `re-review`"
         else:
             waiting, reviewers = "`unassigned`", []
 
@@ -258,6 +259,10 @@ def evaluate(pr, rules):
 
 
 def users(logins):
+    return ", ".join(logins)
+
+
+def mentions(logins):
     return ", ".join(f"@{u}" for u in logins)
 
 
@@ -272,10 +277,10 @@ def section(entries, open_=False, **kw):
     return details(f"{n} pull request" + ("" if n == 1 else "s"), table(entries, **kw), open_=open_)
 
 
-def table(entries, last_col="Age", last_key="age", show_area=True):
+def table(entries, last_col="Age", last_key="age", mid_col="Waiting for"):
     if not entries:
         return EMPTY
-    head = f"| Pull request | Waiting for | {last_col} |\n|---|---|---:|"
+    head = f"| Pull request | Author | {mid_col} | {last_col} |\n|---|---|---|---:|"
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
@@ -284,11 +289,7 @@ def table(entries, last_col="Age", last_key="age", show_area=True):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        meta = f"{e['primary']} · @{e['author']}" if show_area else f"@{e['author']}"
-        if e["reviewers"]:
-            meta += " → " + users(e["reviewers"])
-        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{meta}</sub> "
-                    f"| {e['waiting']} | {age} |")
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {e['author']} | {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -348,12 +349,12 @@ def render(prs, source_repo, rules):
     if not ordered_areas:
         out += ["_Nothing here._", ""]
     else:
-        legend = " · ".join(f"{a}: {users(sorted(owners_by_area[a]))}" for a in ordered_areas if owners_by_area.get(a))
+        legend = " · ".join(f"{a}: {mentions(sorted(owners_by_area[a]))}" for a in ordered_areas if owners_by_area.get(a))
         out += [f"<sub>Code owners — {legend}</sub>", ""]
     for area in ordered_areas:
         items = by_area[area]
         out += [f"### {area}", "",
-                section(items, open_=True, last_col="Waiting", last_key="idle", show_area=False)]
+                section(items, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers")]
     out += [
         "",
         "## With authors",
@@ -361,7 +362,7 @@ def render(prs, source_repo, rules):
         "",
         breakdown(authors),
         "",
-        section(authors),
+        section(authors, mid_col="Blocked by"),
         "",
         "## On hold",
         f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
@@ -373,7 +374,7 @@ def render(prs, source_repo, rules):
         "",
         breakdown(stale),
         "",
-        section(stale, last_col="Idle", last_key="idle"),
+        section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by"),
         "",
         "## Automated",
         "*Opened by bots (dependency bumps, release chores).*",
