@@ -310,15 +310,18 @@ KIND_ORDER = ["merge conflict", "CI failing", "changes requested", "unanswered q
 
 
 def subsections(entries, key, order, open_=False, **kw):
-    """Group entries by key(e) (first matching value) and render '### group · n' blocks."""
+    """Group entries by key(e) and render each group as one toggle line.
+    A single group is rendered as a plain list, since the heading already names it."""
     groups = defaultdict(list)
     for e in entries:
         groups[key(e)].append(e)
+    if not groups:
+        return EMPTY
+    if len(groups) == 1:
+        return section(entries, open_=open_, **kw)
     names = [g for g in order if g in groups] + sorted(g for g in groups if g not in order)
-    out = []
-    for g in names:
-        out += [f"### {g[0].upper() + g[1:]} · {len(groups[g])}", "", section(groups[g], open_=open_, **kw)]
-    return "\n".join(out) if out else EMPTY
+    return "\n".join(details(f"<b>{g[0].upper() + g[1:]}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_)
+                     for g in names)
 
 
 def heading(title, n, blurb):
