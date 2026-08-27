@@ -284,13 +284,14 @@ def section(entries, open_=False, **kw):
     return details("Show list", table(entries, **kw), open_=open_)
 
 
-def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author=False):
+def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author=False, area=False):
     if not entries:
         return EMPTY
-    head = (f"| Pull request | Author | {mid_col} | {last_col} |\n|---|---|---|---:|" if author
-            else f"| Pull request | {mid_col} | {last_col} |\n|---|---|---:|")
+    cols = ["Pull request"] + (["Author"] if author else []) + ([ "Area"] if area else []) + [mid_col, last_col]
+    head = "| " + " | ".join(cols) + " |\n|" + "---|" * (len(cols) - 1) + "---:|"
     rows = []
-    ordered = sorted(entries, key=lambda e: -e[last_key])
+    order = lambda e: (AREA_ORDER.index(e["primary"]) if e["primary"] in AREA_ORDER else 99, -e[last_key]) if area else -e[last_key]
+    ordered = sorted(entries, key=order)
     for e in ordered[:MAX_ROWS]:
         title = e["title"].replace("|", "\\|")
         if len(title) > TITLE_MAX:
@@ -298,7 +299,8 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
         who = f" {e['author']} |" if author else ""
-        rows.append(f"| [#{e['number']}]({e['url']}) {title} |{who} {e['waiting']} | {age} |")
+        where = f" {e['primary']} |" if area else ""
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} |{who}{where} {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -377,13 +379,7 @@ def render(prs, source_repo, rules):
     out += rows + [""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
-    ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
-    if not ordered_areas:
-        out += ["_Nothing here._", ""]
-    for area in ordered_areas:
-        items = by_area[area]
-        out += [f"### {area} · {len(items)}", "",
-                section(items, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers")]
+    out += [section(review, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers", area=True)]
     out += [
         "",
         heading("With authors", len(authors)),
