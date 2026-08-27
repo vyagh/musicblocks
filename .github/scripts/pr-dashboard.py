@@ -346,8 +346,12 @@ COLORS = {  # hex for the top badges, math colour name for heading numbers
 }
 
 
+def count_badge(title, n):
+    return f'<img alt="{n}" src="https://img.shields.io/badge/{n}-{COLORS[title][0]}?style=flat-square">'
+
+
 def heading(title, n, blurb):
-    return f"## {title} · ${{\\color{{{COLORS[title][1]}}}{{{n}}}}}$\n*{blurb}*"
+    return f"## {title} {count_badge(title, n)}\n*{blurb}*"
 
 
 def details(summary, body, open_=False):
