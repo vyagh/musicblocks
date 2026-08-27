@@ -340,8 +340,18 @@ def subsections(entries, key, order, open_=False, label=None, show_empty=False, 
     return "\n".join(out)
 
 
+COLORS = {
+    "Ready to merge": "2ea043", "In review": "0969da", "With authors": "bf8700",
+    "On hold": "8b949e", "Stale": "cf222e", "Automated": "6e7781",
+}
+
+
+def count_badge(title, n):
+    return f'<img alt="{n}" src="https://img.shields.io/badge/{n}-{COLORS[title]}?style=flat-square">'
+
+
 def heading(title, n, blurb):
-    return f"## {title} · {n}\n*{blurb}*"
+    return f"## {title} {count_badge(title, n)}\n*{blurb}*"
 
 
 def details(summary, body, open_=False):
@@ -386,11 +396,11 @@ def render(prs, source_repo, rules):
         "</p>",
         '<p align="center">',
         "  " + " ".join([
-            badge("ready to merge", len(ready), "2ea043"),
-            badge("in review", len(review), "0969da"),
-            badge("with authors", len(authors), "bf8700"),
-            badge("on hold", len(hold), "8b949e"),
-            badge("stale", len(stale), "cf222e"),
+            badge("ready to merge", len(ready), COLORS["Ready to merge"]),
+            badge("in review", len(review), COLORS["In review"]),
+            badge("with authors", len(authors), COLORS["With authors"]),
+            badge("on hold", len(hold), COLORS["On hold"]),
+            badge("stale", len(stale), COLORS["Stale"]),
         ]),
         "</p>",
         "",
