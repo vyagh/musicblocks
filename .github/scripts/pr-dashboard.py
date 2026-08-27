@@ -12,8 +12,7 @@ Sections:
 
   Ready to merge      approved by a code owner, CI green, no conflicts
   In review           waiting on a reviewer; also shown per CODEOWNERS area
-  With authors        changes requested, CI failing, merge conflict, or an
-                      unanswered review
+  With authors        changes requested, CI failing, or merge conflict
   Stale               blocked, and the author has been silent STALE_DAYS+
 
 Areas come from .github/CODEOWNERS in the source repo: each changed file is
@@ -30,6 +29,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 STALE_DAYS = 90
+MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
 
 # Path prefix -> area name. First match wins. Keep in step with MAINTAINERS.md.
 AREAS = [
@@ -60,7 +60,6 @@ query($owner: String!, $name: String!, $cursor: String) {
         files(first: 100) { nodes { path } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
         latestReviews(first: 20) { nodes { author { login } state submittedAt } }
-        reviewThreads(first: 50) { nodes { isResolved } }
         comments(last: 5) { nodes { author { login } createdAt } }
         commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
       }
@@ -162,7 +161,6 @@ def evaluate(pr, rules):
     ci = (commit.get("statusCheckRollup") or {}).get("state") if commit else None
     conflict = pr["mergeable"] == "CONFLICTING"
     reviews = [r for r in pr["latestReviews"]["nodes"] if r["author"] and r["author"]["login"] != author]
-    open_threads = sum(1 for t in pr["reviewThreads"]["nodes"] if not t["isResolved"])
     requested = []
     for rq in pr["reviewRequests"]["nodes"]:
         who = rq["requestedReviewer"] or {}
@@ -175,18 +173,10 @@ def evaluate(pr, rules):
         area_owners[area_for(f["path"])].update(o.lstrip("@") for o in owners_for(f["path"], rules))
     areas = sorted(area_owners) or ["Other"]
 
-    events = []
-    if commit:
-        events.append((ts(commit["committedDate"]), author))
-    for r in reviews:
-        events.append((ts(r["submittedAt"]), r["author"]["login"]))
-    for c in pr["comments"]["nodes"]:
-        if c["author"]:
-            events.append((ts(c["createdAt"]), c["author"]["login"]))
-    events.sort()
-    last_actor = events[-1][1] if events else author
-    author_events = [e for e in events if e[1] == author]
-    last_author_activity = author_events[-1][0] if author_events else ts(pr["createdAt"])
+    # Last author activity: newest of last commit and the author's recent comments.
+    author_times = [ts(commit["committedDate"])] if commit else []
+    author_times += [ts(c["createdAt"]) for c in pr["comments"]["nodes"] if c["author"] and c["author"]["login"] == author]
+    last_author_activity = max(author_times, default=ts(pr["createdAt"]))
 
     changes_by = [r["author"]["login"] for r in reviews if r["state"] == "CHANGES_REQUESTED"]
     approved_by = [r["author"]["login"] for r in reviews if r["state"] == "APPROVED"]
@@ -202,10 +192,7 @@ def evaluate(pr, rules):
     if blockers:
         route, waiting = "author", ", ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
-        route, waiting = "ready", "approved by " + users(approved_by)
-    elif last_actor != author and (reviews or open_threads):
-        route = "author"
-        waiting = f"reply to @{last_actor}" + (f", {open_threads} open threads" if open_threads > 1 else "")
+        route, waiting = "ready", ("approved by " + users(approved_by)) if approved_by else "approved"
     else:
         route = "review"
         if requested:
@@ -216,10 +203,10 @@ def evaluate(pr, rules):
             waiting = "no reviewer requested"
 
     return {
-        "number": pr["number"], "title": pr["title"], "url": pr["url"], "author": author,
+        "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
         "route": route, "waiting": waiting, "areas": areas, "area_owners": area_owners, "requested": requested,
         "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity),
-        "stale": route == "author" and bool(blockers) and days(last_author_activity) >= STALE_DAYS,
+        "stale": route == "author" and days(last_author_activity) >= STALE_DAYS,
     }
 
 
@@ -232,10 +219,13 @@ def table(entries, last_col="Age", last_key="age"):
         return "_Nothing here._"
     head = f"| PR | Area | Author | Waiting for | {last_col} |\n|---|---|---|---|---:|"
     rows = []
-    for e in sorted(entries, key=lambda e: -e[last_key]):
+    ordered = sorted(entries, key=lambda e: -e[last_key])
+    for e in ordered[:MAX_ROWS]:
         title = e["title"].replace("|", "\\|")
         rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
                     f"| {e['waiting']} | {e[last_key]}d |")
+    if len(ordered) > MAX_ROWS:
+        rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
 
 
@@ -285,7 +275,7 @@ def render(prs, source_repo, rules):
         "",
         "## With authors",
         "",
-        "Changes requested, CI failing, merge conflict, or an unanswered review.",
+        "Changes requested, CI failing, or merge conflict.",
         "",
         details(f"Show {len(authors)}", table(authors)),
         "",
