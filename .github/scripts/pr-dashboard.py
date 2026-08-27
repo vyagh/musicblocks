@@ -328,8 +328,7 @@ def subsections(entries, key, order, open_=False, label=None, show_empty=False, 
     names = [g for g in order if g in groups or show_empty] + sorted(g for g in groups if g not in order)
     name = label or (lambda g: g[0].upper() + g[1:])
     return "\n".join(
-        details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_) if groups.get(g)
-        else f"<b>{name(g)}</b> · 0\n"
+        details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw) if groups.get(g) else EMPTY, open_=open_)
         for g in names)
 
 
