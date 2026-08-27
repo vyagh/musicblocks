@@ -306,8 +306,8 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
     return "\n".join([head, *rows])
 
 
-def heading(title, n):
-    return f"## {title} · {n}"
+def heading(title, n, blurb):
+    return f"## {title} · {n}\n*{blurb}*"
 
 
 def details(summary, body, open_=False):
@@ -360,24 +360,11 @@ def render(prs, source_repo, rules):
         ]),
         "</p>",
         "",
-        details("How to read this", "\n".join([
-            "Every open pull request is in exactly one section, based on who needs to act next.",
-            "",
-            "- **Ready to merge** — a code owner approved it, CI is green, no conflicts. A maintainer can merge.",
-            "- **In review** — the ball is with the reviewers listed on the row. *Waiting* is how many days they've had it.",
-            "- **With authors** — the author needs to do something: fix a conflict, fix CI, answer a review, or address requested changes.",
-            f"- **On hold** — reviewed, but merging is paused on purpose (label: {', '.join(f'`{l}`' for l in HOLD_LABELS)}).",
-            f"- **Stale** — with authors, and the author hasn't pushed or commented in {STALE_DAYS}+ days. Close, or take it over.",
-            "- **Automated** — opened by bots.",
-            "",
-            "If your PR is *with authors*, the row tells you why. Fix that and it moves to *In review* on the next update.",
-        ])),
-        "",
-        heading("Ready to merge", len(ready)),
+        heading("Ready to merge", len(ready), "Approved by a code owner, CI green, no conflicts. A maintainer can merge."),
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review)),
+        heading("In review", len(review), "Waiting on the reviewers listed on each row. Waiting is how many days they have had it."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
@@ -395,23 +382,23 @@ def render(prs, source_repo, rules):
     out += [section(review, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers", area=True)]
     out += [
         "",
-        heading("With authors", len(authors)),
+        heading("With authors", len(authors), "The author needs to act: fix a conflict, fix CI, answer a review, or address requested changes."),
         "",
         breakdown(authors),
         "",
         section(authors, mid_col="Blocked by"),
         "",
-        heading("On hold", len(hold)),
+        heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
         section(hold),
         "",
-        heading("Stale", len(stale)),
+        heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
         breakdown(stale),
         "",
         section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
-        heading("Automated", len(bots)),
+        heading("Automated", len(bots), "Opened by bots."),
         "",
         section(bots),
         "",
