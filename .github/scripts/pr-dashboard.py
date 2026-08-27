@@ -351,7 +351,7 @@ def count_badge(title, n):
 
 
 def heading(title, n, blurb):
-    return f"## {title} {count_badge(title, n)}\n*{blurb}*"
+    return f"## {title} · {n}\n*{blurb}*"
 
 
 def details(summary, body, open_=False):
