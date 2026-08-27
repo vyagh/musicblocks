@@ -382,23 +382,22 @@ def render(prs, source_repo, rules):
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review), "Waiting on the reviewers listed on each row. Waiting is how many days they have had it."),
+        heading("In review", len(review), "Waiting on the people requested on each row. Waiting is how many days they have had it."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
-    people = set(load) | {u for owners in owners_by_area.values() for u in owners}
     areas_of = defaultdict(list)
     for area in AREA_ORDER:
         for u in owners_by_area.get(area, ()):
             areas_of[u].append(area)
-    rows = ["| Person | Code owner for | Requested on |", "|---|---|---:|"]
-    for u in sorted(people, key=lambda u: (-load[u], u)):
-        rows.append(f"| @{u} | {', '.join(areas_of[u]) or '—'} | {load[u]} |")
-    out += [details("<b>Review requests</b>", "\n".join(rows)), ""]
+    owner_rows = ["| Code owner | Areas | Requested on |", "|---|---|---:|"]
+    for u in sorted(areas_of, key=lambda u: (-load[u], u)):
+        owner_rows.append(f"| @{u} | {', '.join(areas_of[u])} | {load[u]} |")
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
-                        last_col="Waiting", last_key="idle", mid_col="Reviewers")]
+                        last_col="Waiting", last_key="idle", mid_col="Requested"),
+            details("Code owners", "\n".join(owner_rows)), ""]
     out += [
         "",
         heading("With authors", len(authors), "The author needs to act: fix a conflict, fix CI, answer a review, or address requested changes."),
