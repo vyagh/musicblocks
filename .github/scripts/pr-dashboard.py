@@ -391,10 +391,10 @@ def render(prs, source_repo, rules):
     for area in AREA_ORDER:
         for u in owners_by_area.get(area, ()):
             areas_of[u].append(area)
-    rows = ["| Reviewer | Code owner for | Requested on |", "|---|---|---:|"]
+    rows = ["| Person | Code owner for | Requested on |", "|---|---|---:|"]
     for u in sorted(people, key=lambda u: (-load[u], u)):
         rows.append(f"| @{u} | {', '.join(areas_of[u]) or '—'} | {load[u]} |")
-    out += [details("<b>Reviewer load</b>", "\n".join(rows)), ""]
+    out += [details("<b>Review requests</b>", "\n".join(rows)), ""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
