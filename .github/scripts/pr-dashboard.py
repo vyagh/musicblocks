@@ -281,8 +281,7 @@ def section(entries, open_=False, **kw):
     """A collapsible table, or a one-line empty state."""
     if not entries:
         return EMPTY
-    n = len(entries)
-    return details(f"{n} pull request" + ("" if n == 1 else "s"), table(entries, **kw), open_=open_)
+    return details("Show list", table(entries, **kw), open_=open_)
 
 
 def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author=False):
@@ -305,8 +304,8 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
     return "\n".join([head, *rows])
 
 
-def heading(title, blurb):
-    return f"## {title}\n<sub>{blurb}</sub>"
+def heading(title, n):
+    return f"## {title} · {n}"
 
 
 def details(summary, body, open_=False):
@@ -359,11 +358,11 @@ def render(prs, source_repo, rules):
         ]),
         "</p>",
         "",
-        heading("Ready to merge", "approved, CI green, no conflicts"),
+        heading("Ready to merge", len(ready)),
         "",
         section(ready, open_=True),
         "",
-        heading("In review", "waiting on a reviewer"),
+        heading("In review", len(review)),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
@@ -383,32 +382,33 @@ def render(prs, source_repo, rules):
         out += ["_Nothing here._", ""]
     for area in ordered_areas:
         items = by_area[area]
-        out += [f"### {area}", "",
+        out += [f"### {area} · {len(items)}", "",
                 section(items, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers")]
     out += [
         "",
-        heading("With authors", "blocked until the author acts"),
+        heading("With authors", len(authors)),
         "",
         breakdown(authors),
         "",
         section(authors, mid_col="Blocked by"),
         "",
-        heading("On hold", ", ".join(f"<code>{l}</code>" for l in HOLD_LABELS)),
+        heading("On hold", len(hold)),
         "",
         section(hold),
         "",
-        heading("Stale", f"author silent {STALE_DAYS}+ days"),
+        heading("Stale", len(stale)),
         "",
         breakdown(stale),
         "",
         section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
-        heading("Automated", "opened by bots"),
+        heading("Automated", len(bots)),
         "",
         section(bots),
         "",
         f"<sub>{len(prs)} open = {len(ready) + len(review) + len(authors) + len(hold) + len(stale)} above + {len(bots)} automated + {drafts} drafts · "
-        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened</sub>",
+        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened · "
+        f"Stale = with authors and idle {STALE_DAYS}+ days · On hold = labelled " + ", ".join(f"<code>{l}</code>" for l in HOLD_LABELS) + " · Automated = opened by bots</sub>",
     ]
     return "\n".join(out)
 
