@@ -139,10 +139,18 @@ def codeowners_regex(pattern):
 
 
 def area_owners_from_rules(raw_rules):
-    """Area -> sorted owners, from the CODEOWNERS patterns themselves."""
+    """Area -> owners, from the CODEOWNERS patterns themselves. Areas with no
+    specific rule get the owners of the fallback `*` line."""
     out = defaultdict(set)
+    fallback = set()
     for pattern, owners in raw_rules:
-        out[area_for(pattern.lstrip("/"))].update(o.lstrip("@") for o in owners)
+        if pattern == "*":
+            fallback.update(o.lstrip("@") for o in owners)
+        else:
+            out[area_for(pattern.lstrip("/"))].update(o.lstrip("@") for o in owners)
+    for area in AREA_ORDER:
+        if not out.get(area):
+            out[area] = set(fallback)
     return out
 
 
@@ -366,8 +374,9 @@ def render(prs, source_repo, rules):
     if not ordered_areas:
         out += ["_Nothing here._", ""]
     else:
-        legend = " · ".join(f"{a}: {mentions(sorted(owners_by_area[a]))}" for a in ordered_areas if owners_by_area.get(a))
-        out += [f"<sub>Code owners — {legend}</sub>", ""]
+        pass
+    legend = " · ".join(f"{a}: {mentions(sorted(owners_by_area[a]))}" for a in AREA_ORDER if owners_by_area.get(a))
+    out += [f"<sub>Code owners — {legend}</sub>", ""]
     for area in ordered_areas:
         items = by_area[area]
         out += [f"### {area}", "",
