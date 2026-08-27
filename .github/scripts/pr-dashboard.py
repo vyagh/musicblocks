@@ -259,7 +259,7 @@ def evaluate(pr, rules):
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
         "route": route, "waiting": waiting, "areas": areas, "primary": primary,
-        "bot": (pr["author"] or {}).get("__typename") == "Bot", "reviewers": reviewers, "area_owners": area_owners, "requested": requested,
+        "bot": (pr["author"] or {}).get("__typename") == "Bot", "reviewers": reviewers, "hold": hold, "area_owners": area_owners, "requested": requested,
         "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity), "kinds": kinds,
         "unassigned": route == "review" and not requested and not reviews,
         "stale": route == "author" and days(last_author_activity) >= STALE_DAYS,
@@ -304,6 +304,21 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
+
+
+KIND_ORDER = ["merge conflict", "CI failing", "changes requested", "unanswered question"]
+
+
+def subsections(entries, key, order, open_=False, **kw):
+    """Group entries by key(e) (first matching value) and render '### group · n' blocks."""
+    groups = defaultdict(list)
+    for e in entries:
+        groups[key(e)].append(e)
+    names = [g for g in order if g in groups] + sorted(g for g in groups if g not in order)
+    out = []
+    for g in names:
+        out += [f"### {g[0].upper() + g[1:]} · {len(groups[g])}", "", section(groups[g], open_=open_, **kw)]
+    return "\n".join(out) if out else EMPTY
 
 
 def heading(title, n, blurb):
@@ -379,24 +394,21 @@ def render(prs, source_repo, rules):
     out += rows + [""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
-    out += [section(review, open_=True, last_col="Waiting", last_key="idle", mid_col="Reviewers", area=True)]
+    out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
+                        last_col="Waiting", last_key="idle", mid_col="Reviewers")]
     out += [
         "",
         heading("With authors", len(authors), "The author needs to act: fix a conflict, fix CI, answer a review, or address requested changes."),
         "",
-        breakdown(authors),
-        "",
-        section(authors, mid_col="Blocked by"),
+        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, mid_col="Blocked by"),
         "",
         heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
-        section(hold),
+        subsections(hold, lambda e: e["hold"][0], HOLD_LABELS),
         "",
         heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
-        breakdown(stale),
-        "",
-        section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
+        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         heading("Automated", len(bots), "Opened by bots."),
         "",
