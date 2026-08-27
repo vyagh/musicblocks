@@ -87,42 +87,26 @@ def gh(*args, stdin=None):
     return r.stdout
 
 
-MERGEABLE_QUERY = """
-query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { mergeable } }
-}
-"""
-
-
-def fetch_prs(repo):
+def fetch_prs(repo, attempts=5, wait=20):
+    """Fetch all open PRs. After a push to the default branch GitHub resets every
+    PR's `mergeable` to UNKNOWN and recomputes lazily; asking again triggers the
+    recompute, so re-fetch a few times until it settles. Otherwise a run landing
+    right after a merge would report zero conflicts."""
     owner, name = repo.split("/")
-    prs, cursor = [], None
-    while True:
-        variables = {"owner": owner, "name": name, "cursor": cursor}
-        out = gh("api", "graphql", "--input", "-",
-                 stdin=json.dumps({"query": QUERY, "variables": variables}))
-        data = json.loads(out)["data"]["repository"]["pullRequests"]
-        prs.extend(data["nodes"])
-        if not data["pageInfo"]["hasNextPage"]:
-            break
-        cursor = data["pageInfo"]["endCursor"]
-    resolve_mergeable(owner, name, prs)
-    return prs
-
-
-def resolve_mergeable(owner, name, prs, attempts=6, wait=15):
-    """After a push to the default branch GitHub resets every PR's `mergeable` to
-    UNKNOWN and recomputes lazily. Asking again triggers the recompute; poll until
-    it settles so a run that lands right after a merge does not report zero conflicts."""
-    for _ in range(attempts):
-        pending = [pr for pr in prs if pr["mergeable"] == "UNKNOWN"]
-        if not pending:
-            return
+    for attempt in range(attempts):
+        prs, cursor = [], None
+        while True:
+            variables = {"owner": owner, "name": name, "cursor": cursor}
+            out = gh("api", "graphql", "--input", "-",
+                     stdin=json.dumps({"query": QUERY, "variables": variables}))
+            data = json.loads(out)["data"]["repository"]["pullRequests"]
+            prs.extend(data["nodes"])
+            if not data["pageInfo"]["hasNextPage"]:
+                break
+            cursor = data["pageInfo"]["endCursor"]
+        if not any(pr["mergeable"] == "UNKNOWN" for pr in prs) or attempt == attempts - 1:
+            return prs
         time.sleep(wait)
-        for pr in pending:
-            out = gh("api", "graphql", "--input", "-", stdin=json.dumps(
-                {"query": MERGEABLE_QUERY, "variables": {"owner": owner, "name": name, "number": pr["number"]}}))
-            pr["mergeable"] = json.loads(out)["data"]["repository"]["pullRequest"]["mergeable"]
 
 
 def fetch_codeowners(repo):
