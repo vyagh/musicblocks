@@ -360,6 +360,19 @@ def render(prs, source_repo, rules):
         ]),
         "</p>",
         "",
+        details("How to read this", "\n".join([
+            "Every open pull request is in exactly one section, based on who needs to act next.",
+            "",
+            "- **Ready to merge** — a code owner approved it, CI is green, no conflicts. A maintainer can merge.",
+            "- **In review** — the ball is with the reviewers listed on the row. *Waiting* is how many days they've had it.",
+            "- **With authors** — the author needs to do something: fix a conflict, fix CI, answer a review, or address requested changes.",
+            f"- **On hold** — reviewed, but merging is paused on purpose (label: {', '.join(f'`{l}`' for l in HOLD_LABELS)}).",
+            f"- **Stale** — with authors, and the author hasn't pushed or commented in {STALE_DAYS}+ days. Close, or take it over.",
+            "- **Automated** — opened by bots.",
+            "",
+            "If your PR is *with authors*, the row tells you why. Fix that and it moves to *In review* on the next update.",
+        ])),
+        "",
         heading("Ready to merge", len(ready)),
         "",
         section(ready, open_=True),
@@ -403,8 +416,7 @@ def render(prs, source_repo, rules):
         section(bots),
         "",
         f"<sub>{len(prs)} open = {len(ready) + len(review) + len(authors) + len(hold) + len(stale)} above + {len(bots)} automated + {drafts} drafts · "
-        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened · "
-        f"Stale = with authors and idle {STALE_DAYS}+ days · On hold = labelled " + ", ".join(f"<code>{l}</code>" for l in HOLD_LABELS) + " · Automated = opened by bots</sub>",
+        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened</sub>",
     ]
     return "\n".join(out)
 
