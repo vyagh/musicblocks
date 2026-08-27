@@ -346,7 +346,7 @@ def render(prs, source_repo, rules):
 
     out = [
         '<p align="center">',
-        f'  <strong>{source_repo}</strong> · open pull requests<br>',
+        f'  <strong>{source_repo}</strong> · <a href="https://github.com/{source_repo}/pulls">{len(prs)} open pull requests</a><br>',
         f"  <sub>{NOW.strftime('%Y-%m-%d')}</sub>",
         "</p>",
         '<p align="center">',
@@ -407,7 +407,8 @@ def render(prs, source_repo, rules):
         "",
         section(bots),
         "",
-        f"<sub>Waiting / Idle = days since the author last pushed or commented · Age = days since opened · {drafts} drafts not shown</sub>",
+        f"<sub>{len(prs)} open = {len(ready) + len(review) + len(authors) + len(hold) + len(stale)} above + {len(bots)} automated + {drafts} drafts · "
+        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened</sub>",
     ]
     return "\n".join(out)
 
