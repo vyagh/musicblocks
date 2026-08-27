@@ -416,9 +416,9 @@ def render(prs, source_repo, rules):
                         last_col="Waiting", last_key="idle", mid_col="Requested")]
     out += [
         "",
-        heading("With authors", len(authors), "The author of the PR has to do something before review can continue. Each PR is listed under its first blocker; the row shows all of them."),
+        heading("With authors", len(authors), "The author of the PR has to do something before review can continue. A PR with two problems is listed under both."),
         "",
-        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, totals=lambda e: e["kinds"], mid_col="Blocked by"),
+        subsections(authors, lambda e: e["kinds"], KIND_ORDER, label=KIND_ACTION.get, mid_col="Blocked by"),
         "",
         heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
@@ -426,7 +426,7 @@ def render(prs, source_repo, rules):
         "",
         heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
-        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, totals=lambda e: e["kinds"], last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
+        subsections(stale, lambda e: e["kinds"], KIND_ORDER, label=KIND_ACTION.get, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         heading("Automated", len(bots), "Opened by bots."),
         "",
