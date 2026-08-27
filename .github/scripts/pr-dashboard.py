@@ -33,7 +33,8 @@ from datetime import datetime, timezone
 
 STALE_DAYS = 90
 TITLE_MAX = 72
-AREA_ORDER = ["Music & UI", "Blocks & Runtime", "Tests & CI", "Planet", "Docs & i18n", "Governance", "General JS", "Other"]
+AREA_ORDER = ["Music & UI", "Blocks & Runtime", "Planet", "Docs & i18n", "Governance", "Tests & CI", "General JS", "Other"]
+GENERIC_AREAS = {"Tests & CI", "General JS", "Other"}  # used as a PR's area only when nothing more specific applies
 HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
 
@@ -62,7 +63,7 @@ query($owner: String!, $name: String!, $cursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url isDraft createdAt reviewDecision mergeable
-        author { login }
+        author { login __typename }
         labels(first: 20) { nodes { name } }
         files(first: 100) { nodes { path } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
@@ -188,7 +189,9 @@ def evaluate(pr, rules):
     area_owners = defaultdict(set)
     for f in pr["files"]["nodes"]:
         area_owners[area_for(f["path"])].update(o.lstrip("@") for o in owners_for(f["path"], rules))
-    areas = sorted(area_owners) or ["Other"]
+    areas = sorted(area_owners, key=lambda a: AREA_ORDER.index(a) if a in AREA_ORDER else 99) or ["Other"]
+    specific = [a for a in areas if a not in GENERIC_AREAS]
+    primary = (specific or areas)[0]
 
     labels = [l["name"] for l in pr["labels"]["nodes"]]
     hold = [l for l in labels if l in HOLD_LABELS]
@@ -212,6 +215,7 @@ def evaluate(pr, rules):
     changes_by = [r["author"]["login"] for r in reviews if r["state"] == "CHANGES_REQUESTED"]
     approved_by = [r["author"]["login"] for r in reviews if r["state"] == "APPROVED"]
 
+    reviewers = []
     blockers = []
     if conflict:
         blockers.append("`merge conflict`")
@@ -237,15 +241,16 @@ def evaluate(pr, rules):
     else:
         route = "review"
         if requested:
-            waiting = users(requested)
+            waiting, reviewers = "`review requested`", requested
         elif reviews:
-            waiting = "`re-review` " + users(sorted({r["author"]["login"] for r in reviews}))
+            waiting, reviewers = "`re-review`", sorted({r["author"]["login"] for r in reviews})
         else:
-            waiting = "`unassigned`"
+            waiting, reviewers = "`unassigned`", []
 
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
-        "route": route, "waiting": waiting, "areas": areas, "area_owners": area_owners, "requested": requested,
+        "route": route, "waiting": waiting, "areas": areas, "primary": primary,
+        "bot": (pr["author"] or {}).get("__typename") == "Bot", "reviewers": reviewers, "area_owners": area_owners, "requested": requested,
         "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity), "kinds": kinds,
         "unassigned": route == "review" and not requested and not reviews,
         "stale": route == "author" and days(last_author_activity) >= STALE_DAYS,
@@ -268,7 +273,9 @@ def table(entries, last_col="Age", last_key="age", show_area=True):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        meta = f"{e['areas'][0]} · @{e['author']}" if show_area else f"@{e['author']}"
+        meta = f"{e['primary']} · @{e['author']}" if show_area else f"@{e['author']}"
+        if e["reviewers"]:
+            meta += " → " + users(e["reviewers"])
         rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{meta}</sub> "
                     f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
@@ -277,6 +284,8 @@ def table(entries, last_col="Age", last_key="age", show_area=True):
 
 
 def details(summary, body, open_=False):
+    if body.startswith("_"):
+        return body + "\n"
     tag = "<details open>" if open_ else "<details>"
     return f"{tag}\n<summary>{summary}</summary>\n\n{body}\n\n</details>\n"
 
@@ -292,10 +301,14 @@ def render(prs, source_repo, rules):
     authors = [e for e in live if e["route"] == "author"]
     hold = [e for e in live if e["route"] == "hold"]
 
+    bots = [e for e in live if e["bot"]]
+    ready = [e for e in ready if not e["bot"]]
+    review = [e for e in review if not e["bot"]]
+    authors = [e for e in authors if not e["bot"]]
+    hold = [e for e in hold if not e["bot"]]
     by_area = defaultdict(list)
     for e in review:
-        for a in e["areas"]:
-            by_area[a].append(e)
+        by_area[e["primary"]].append(e)
 
     def count(n):
         return f"{n} pull request" + ("" if n == 1 else "s")
@@ -309,9 +322,9 @@ def render(prs, source_repo, rules):
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        "| Ready to merge | In review | With authors | On hold | Stale | Drafts |",
-        "|:---:|:---:|:---:|:---:|:---:|:---:|",
-        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(hold)}** | **{len(stale)}** | {drafts} |",
+        "| Ready to merge | In review | With authors | On hold | Stale |",
+        "|:---:|:---:|:---:|:---:|:---:|",
+        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(hold)}** | **{len(stale)}** |",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
@@ -319,7 +332,7 @@ def render(prs, source_repo, rules):
         details(count(len(ready)), table(ready), open_=True),
         "",
         "## In review",
-        "*Waiting on a reviewer, by area. The people on each heading are that area's code owners. "
+        "*Waiting on a reviewer, by area. Each PR is listed once, under the most specific area it touches. "
         "Waiting is days since the author last pushed or commented.*",
         "",
     ]
@@ -333,7 +346,7 @@ def render(prs, source_repo, rules):
         out += [f"<sub>Code owners — {legend}</sub>", ""]
     for area in ordered_areas:
         items = by_area[area]
-        out += [f"### {area} · {len(items)}", "",
+        out += [f"### {area}", "",
                 details(count(len(items)), table(items, last_col="Waiting", last_key="idle", show_area=False), open_=True)]
     out += [
         "",
@@ -356,8 +369,13 @@ def render(prs, source_repo, rules):
         "",
         details(count(len(stale)), table(stale, last_col="Idle", last_key="idle")),
         "",
+        "## Automated",
+        "*Opened by bots (dependency bumps, release chores).*",
+        "",
+        details(count(len(bots)), table(bots)),
+        "",
         "---",
-        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Grouping comes from GitHub's review decision, CI result, "
+        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · {drafts} draft PRs not shown · Grouping comes from GitHub's review decision, CI result, "
         "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
         "Waiting and Idle are days since the author last pushed or commented · "
         "Reviewers without CODEOWNERS entries are not shown.</sub>",
