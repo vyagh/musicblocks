@@ -1,0 +1,38 @@
+name: PR dashboard
+
+# Rewrites one issue with a table of open pull requests grouped by who acts
+# next. See .github/scripts/pr-dashboard.py for the grouping rules.
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # daily
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Repository to read open PRs from
+        default: sugarlabs/musicblocks
+      issue:
+        description: Issue number to overwrite (in this repository)
+        required: true
+
+env:
+  DASHBOARD_ISSUE: ${{ inputs.issue || vars.PR_DASHBOARD_ISSUE }}
+  SOURCE_REPO: ${{ inputs.source_repo || github.repository }}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.issue || vars.PR_DASHBOARD_ISSUE }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          python3 .github/scripts/pr-dashboard.py
+          --source-repo "$SOURCE_REPO"
+          --issue-repo "${{ github.repository }}"
+          --issue "$DASHBOARD_ISSUE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
