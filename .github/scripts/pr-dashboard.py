@@ -389,7 +389,7 @@ def render(prs, source_repo, rules):
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review), "Someone other than the author has to act: the people requested on each row. Waiting is how many days they have had it."),
+        heading("In review", len(review), "**Code owners, start here.** These PRs are waiting on you, not on their authors. Waiting is how many days you have had each one."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
