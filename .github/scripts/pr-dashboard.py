@@ -32,6 +32,13 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 STALE_DAYS = 90
+STATUS = {  # route -> (swatch, label)
+    "ready": ("`#1a7f37`", "Ready"),
+    "hold": ("`#6e7781`", "On hold"),
+    "review": ("`#bf8700`", "In review"),
+    "author": ("`#cf222e`", "Blocked"),
+}
+TITLE_MAX = 72
 HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
 BLOCKER_LABELS = ["needs-rebase"]    # labels that mean the author has to act
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
@@ -244,15 +251,19 @@ def users(logins):
 def table(entries, last_col="Age", last_key="age"):
     if not entries:
         return "_Nothing here._"
-    head = f"| PR | Area | Author | Waiting for | {last_col} |\n|---|---|---|---|---:|"
+    head = f"| PR | Status | Waiting for | Author | {last_col} |\n|---|---|---|---|---:|"
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
         title = e["title"].replace("|", "\\|")
+        if len(title) > TITLE_MAX:
+            title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
-                    f"| {e['waiting']} | {age} |")
+        swatch, label = STATUS["author" if e["stale"] else e["route"]]
+        status = f"{swatch} {'Stale' if e['stale'] else label}"
+        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{', '.join(e['areas'])}</sub> "
+                    f"| {status} | {e['waiting']} | @{e['author']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -281,9 +292,17 @@ def render(prs, source_repo, rules):
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        "| Ready to merge | On hold | In review | With authors | Stale | Drafts |",
+        "| `#1a7f37` Ready to merge | `#6e7781` On hold | `#bf8700` In review | `#cf222e` With authors | `#cf222e` Stale | Drafts |",
         "|:---:|:---:|:---:|:---:|:---:|:---:|",
         f"| **{len(ready)}** | **{len(hold)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
+        "",
+        "```mermaid",
+        "%%{init: {'theme': 'neutral'}}%%",
+        "xychart-beta horizontal",
+        '    x-axis ["Ready", "On hold", "In review", "With authors", "Stale"]',
+        f'    y-axis "PRs" 0 --> {max(len(ready), len(hold), len(review), len(authors), len(stale), 1)}',
+        f"    bar [{len(ready)}, {len(hold)}, {len(review)}, {len(authors)}, {len(stale)}]",
+        "```",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
@@ -316,8 +335,10 @@ def render(prs, source_repo, rules):
         "",
         details(f"Show &nbsp;·&nbsp; {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
         "",
-        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · grouped from review state, CI status, merge conflicts, labels, and latest activity · "
-        "ages over 60 days in bold.</sub>",
+        "---",
+        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Status comes from GitHub's review decision, CI result, "
+        "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
+        "Idle is days since the author last pushed or commented.</sub>",
     ]
     return "\n".join(out)
 
