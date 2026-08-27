@@ -306,7 +306,7 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
 
 
 def heading(title, blurb):
-    return f"## {title} &nbsp;<sub>{blurb}</sub>"
+    return f"## {title}\n<sub>{blurb}</sub>"
 
 
 def details(summary, body, open_=False):
