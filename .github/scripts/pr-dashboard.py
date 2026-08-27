@@ -28,6 +28,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
@@ -86,6 +87,13 @@ def gh(*args, stdin=None):
     return r.stdout
 
 
+MERGEABLE_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { mergeable } }
+}
+"""
+
+
 def fetch_prs(repo):
     owner, name = repo.split("/")
     prs, cursor = [], None
@@ -96,8 +104,25 @@ def fetch_prs(repo):
         data = json.loads(out)["data"]["repository"]["pullRequests"]
         prs.extend(data["nodes"])
         if not data["pageInfo"]["hasNextPage"]:
-            return prs
+            break
         cursor = data["pageInfo"]["endCursor"]
+    resolve_mergeable(owner, name, prs)
+    return prs
+
+
+def resolve_mergeable(owner, name, prs, attempts=6, wait=15):
+    """After a push to the default branch GitHub resets every PR's `mergeable` to
+    UNKNOWN and recomputes lazily. Asking again triggers the recompute; poll until
+    it settles so a run that lands right after a merge does not report zero conflicts."""
+    for _ in range(attempts):
+        pending = [pr for pr in prs if pr["mergeable"] == "UNKNOWN"]
+        if not pending:
+            return
+        time.sleep(wait)
+        for pr in pending:
+            out = gh("api", "graphql", "--input", "-", stdin=json.dumps(
+                {"query": MERGEABLE_QUERY, "variables": {"owner": owner, "name": name, "number": pr["number"]}}))
+            pr["mergeable"] = json.loads(out)["data"]["repository"]["pullRequest"]["mergeable"]
 
 
 def fetch_codeowners(repo):
@@ -424,6 +449,7 @@ def render(prs, source_repo, rules):
     out += ["\n".join(owner_rows), "",
             subsections(review, lambda e: e["areas"], AREA_ORDER, show_empty=True,
                         last_col="Waiting", last_key="idle", mid_col="Requested")]
+    unknown = sum(1 for pr in prs if pr["mergeable"] == "UNKNOWN")
     out += [
         "",
         heading("With authors", len(authors), "The author of the PR has to do something before review can continue. A PR with two problems is listed under both."),
@@ -443,7 +469,8 @@ def render(prs, source_repo, rules):
         section(bots),
         "",
         f"<sub>{len(prs)} open = {len(ready) + len(review) + len(authors) + len(hold) + len(stale)} above + {len(bots)} automated + {drafts} drafts · "
-        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened</sub>",
+        "Waiting / Idle = days since the author last pushed or commented · Age = days since opened"
+        + (f" · **{unknown} PRs: merge state not yet computed by GitHub, conflicts may be missing**" if unknown else "") + "</sub>",
     ]
     return "\n".join(out)
 
