@@ -14,10 +14,6 @@ on:
       issue:
         description: Issue number to overwrite (in this repository)
         required: true
-      mentions:
-        description: Render handles as live @mentions (notifies people)
-        type: boolean
-        default: false
 
 env:
   DASHBOARD_ISSUE: ${{ inputs.issue || vars.PR_DASHBOARD_ISSUE }}
@@ -38,6 +34,5 @@ jobs:
           --source-repo "$SOURCE_REPO"
           --issue-repo "${{ github.repository }}"
           --issue "$DASHBOARD_ISSUE"
-          ${{ inputs.mentions && '--mentions' || '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

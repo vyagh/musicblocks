@@ -210,15 +210,8 @@ def evaluate(pr, rules):
     }
 
 
-MENTIONS = False  # set by --mentions; off by default so the daily update never notifies anyone
-
-
-def user(login):
-    return f"@{login}" if MENTIONS else f"`{login}`"
-
-
 def users(logins):
-    return ", ".join(user(u) for u in logins)
+    return ", ".join(f"@{u}" for u in logins)
 
 
 def table(entries, last_col="Age", last_key="age"):
@@ -231,7 +224,7 @@ def table(entries, last_col="Age", last_key="age"):
         title = e["title"].replace("|", "\\|")
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | {user(e['author'])} "
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
                     f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
@@ -302,10 +295,7 @@ def main():
     p.add_argument("--issue-repo", required=True)
     p.add_argument("--issue", type=int, required=True)
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--mentions", action="store_true", help="render handles as live @mentions (notifies people)")
     a = p.parse_args()
-    global MENTIONS
-    MENTIONS = a.mentions
 
     body = render(fetch_prs(a.source_repo), a.source_repo, fetch_codeowners(a.source_repo))
     if a.dry_run:
