@@ -12,7 +12,10 @@ Sections:
 
   Ready to merge      approved by a code owner, CI green, no conflicts
   In review           waiting on a reviewer; also shown per CODEOWNERS area
-  With authors        changes requested, CI failing, or merge conflict
+  On hold             carries a HOLD_LABELS label (e.g. string freeze)
+  With authors        changes requested, CI failing, merge conflict, a
+                      BLOCKER_LABELS label, or a reviewer's comment newer
+                      than the author's last push or comment
   Stale               blocked, and the author has been silent STALE_DAYS+
 
 Areas come from .github/CODEOWNERS in the source repo: each changed file is
@@ -29,6 +32,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 STALE_DAYS = 90
+HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
+BLOCKER_LABELS = ["needs-rebase"]    # labels that mean the author has to act
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
 
 # Path prefix -> area name. First match wins. Keep in step with MAINTAINERS.md.
@@ -57,10 +62,11 @@ query($owner: String!, $name: String!, $cursor: String) {
       nodes {
         number title url isDraft createdAt reviewDecision mergeable
         author { login }
+        labels(first: 20) { nodes { name } }
         files(first: 100) { nodes { path } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-        latestReviews(first: 20) { nodes { author { login } state submittedAt } }
-        comments(last: 5) { nodes { author { login } createdAt } }
+        latestReviews(first: 20) { nodes { author { login __typename } state submittedAt } }
+        comments(last: 10) { nodes { author { login __typename } createdAt } }
         commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
       }
     }
@@ -173,10 +179,24 @@ def evaluate(pr, rules):
         area_owners[area_for(f["path"])].update(o.lstrip("@") for o in owners_for(f["path"], rules))
     areas = sorted(area_owners) or ["Other"]
 
-    # Last author activity: newest of last commit and the author's recent comments.
+    labels = [l["name"] for l in pr["labels"]["nodes"]]
+    hold = [l for l in labels if l in HOLD_LABELS]
+
+    # Newest human activity from the author vs. from anyone else (bots excluded by account type).
+    def human(node):
+        a = node.get("author") or {}
+        return a.get("login") and a.get("__typename") != "Bot"
     author_times = [ts(commit["committedDate"])] if commit else []
-    author_times += [ts(c["createdAt"]) for c in pr["comments"]["nodes"] if c["author"] and c["author"]["login"] == author]
+    other_times = []
+    for r in pr["latestReviews"]["nodes"]:
+        if human(r):
+            (author_times if r["author"]["login"] == author else other_times).append((ts(r["submittedAt"]), r["author"]["login"]))
+    for c in pr["comments"]["nodes"]:
+        if human(c):
+            (author_times if c["author"]["login"] == author else other_times).append((ts(c["createdAt"]), c["author"]["login"]))
+    author_times = [t if isinstance(t, datetime) else t[0] for t in author_times]
     last_author_activity = max(author_times, default=ts(pr["createdAt"]))
+    last_other = max(other_times, default=None)
 
     changes_by = [r["author"]["login"] for r in reviews if r["state"] == "CHANGES_REQUESTED"]
     approved_by = [r["author"]["login"] for r in reviews if r["state"] == "APPROVED"]
@@ -188,8 +208,15 @@ def evaluate(pr, rules):
         blockers.append("`CI failing`")
     if changes_by:
         blockers.append("`changes requested` " + users(changes_by))
+    for l in labels:
+        if l in BLOCKER_LABELS:
+            blockers.append(f"`{l}`")
+    if not blockers and last_other and last_other[0] > last_author_activity:
+        blockers.append("`reply to` " + users([last_other[1]]))
 
-    if blockers:
+    if hold:
+        route, waiting = "hold", " ".join(f"`{l}`" for l in hold) + (" · " + " ".join(blockers) if blockers else "")
+    elif blockers:
         route, waiting = "author", " ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
         route, waiting = "ready", "`approved` " + users(approved_by)
@@ -244,6 +271,7 @@ def render(prs, source_repo, rules):
     ready = [e for e in live if e["route"] == "ready"]
     review = [e for e in live if e["route"] == "review"]
     authors = [e for e in live if e["route"] == "author"]
+    hold = [e for e in live if e["route"] == "hold"]
 
     by_area = defaultdict(list)
     for e in review:
@@ -253,14 +281,19 @@ def render(prs, source_repo, rules):
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        "| Ready to merge | In review | With authors | Stale | Drafts |",
-        "|:---:|:---:|:---:|:---:|:---:|",
-        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
+        "| Ready to merge | On hold | In review | With authors | Stale | Drafts |",
+        "|:---:|:---:|:---:|:---:|:---:|:---:|",
+        f"| **{len(ready)}** | **{len(hold)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
         "",
         table(ready),
+        "",
+        "## On hold",
+        f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
+        "",
+        table(hold),
         "",
         "## In review",
         "*Waiting on a reviewer. The full list, then the same PRs by area with that area's code owners.*",
@@ -274,7 +307,7 @@ def render(prs, source_repo, rules):
     out += [
         "",
         "## With authors",
-        "*Changes requested, CI failing, or merge conflict.*",
+        "*Changes requested, CI failing, merge conflict, needs rebase, or an unanswered question from a reviewer.*",
         "",
         details(f"Show &nbsp;·&nbsp; {len(authors)}", table(authors)),
         "",
@@ -283,7 +316,7 @@ def render(prs, source_repo, rules):
         "",
         details(f"Show &nbsp;·&nbsp; {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
         "",
-        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · grouped from review state, CI status, and merge conflicts · "
+        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · grouped from review state, CI status, merge conflicts, labels, and latest activity · "
         "ages over 60 days in bold.</sub>",
     ]
     return "\n".join(out)
