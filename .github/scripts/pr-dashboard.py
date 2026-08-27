@@ -32,12 +32,6 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 STALE_DAYS = 90
-STATUS = {  # route -> (swatch, label)
-    "ready": ("`#1a7f37`", "Ready"),
-    "hold": ("`#6e7781`", "On hold"),
-    "review": ("`#bf8700`", "In review"),
-    "author": ("`#cf222e`", "Blocked"),
-}
 TITLE_MAX = 72
 HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
 BLOCKER_LABELS = ["needs-rebase"]    # labels that mean the author has to act
@@ -251,7 +245,7 @@ def users(logins):
 def table(entries, last_col="Age", last_key="age"):
     if not entries:
         return "_Nothing here._"
-    head = f"| PR | Status | Waiting for | Author | {last_col} |\n|---|---|---|---|---:|"
+    head = f"| PR | Waiting for | Author | {last_col} |\n|---|---|---|---:|"
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
@@ -260,10 +254,8 @@ def table(entries, last_col="Age", last_key="age"):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        swatch, label = STATUS["author" if e["stale"] else e["route"]]
-        status = f"{swatch} {'Stale' if e['stale'] else label}"
         rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{', '.join(e['areas'])}</sub> "
-                    f"| {status} | {e['waiting']} | @{e['author']} | {age} |")
+                    f"| {e['waiting']} | @{e['author']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -292,17 +284,9 @@ def render(prs, source_repo, rules):
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        "| `#1a7f37` Ready to merge | `#6e7781` On hold | `#bf8700` In review | `#cf222e` With authors | `#cf222e` Stale | Drafts |",
+        "| Ready to merge | On hold | In review | With authors | Stale | Drafts |",
         "|:---:|:---:|:---:|:---:|:---:|:---:|",
         f"| **{len(ready)}** | **{len(hold)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
-        "",
-        "```mermaid",
-        "%%{init: {'theme': 'neutral'}}%%",
-        "xychart-beta horizontal",
-        '    x-axis ["Ready", "On hold", "In review", "With authors", "Stale"]',
-        f'    y-axis "PRs" 0 --> {max(len(ready), len(hold), len(review), len(authors), len(stale), 1)}',
-        f"    bar [{len(ready)}, {len(hold)}, {len(review)}, {len(authors)}, {len(stale)}]",
-        "```",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
