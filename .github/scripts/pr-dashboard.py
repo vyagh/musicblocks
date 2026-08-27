@@ -347,7 +347,7 @@ COLORS = {
 
 
 def count_badge(title, n):
-    return f'<img alt="{n}" src="https://img.shields.io/badge/{n}-{COLORS[title]}?style=flat-square">'
+    return f'<img alt="{n}" src="https://img.shields.io/badge/{n}-{COLORS[title]}?style=for-the-badge">'
 
 
 def heading(title, n, blurb):
