@@ -28,7 +28,7 @@ import json
 import re
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 STALE_DAYS = 90
@@ -216,6 +216,13 @@ def evaluate(pr, rules):
     if not blockers and last_other and last_other[0] > last_author_activity:
         blockers.append("`reply to` " + users([last_other[1]]))
 
+    kinds = []
+    if conflict: kinds.append("merge conflict")
+    if ci in ("FAILURE", "ERROR"): kinds.append("CI failing")
+    if changes_by: kinds.append("changes requested")
+    kinds += [l for l in labels if l in BLOCKER_LABELS]
+    if not kinds and last_other and last_other[0] > last_author_activity: kinds.append("unanswered question")
+
     if hold:
         route, waiting = "hold", " ".join(f"`{l}`" for l in hold) + (" · " + " ".join(blockers) if blockers else "")
     elif blockers:
@@ -234,7 +241,8 @@ def evaluate(pr, rules):
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
         "route": route, "waiting": waiting, "areas": areas, "area_owners": area_owners, "requested": requested,
-        "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity),
+        "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity), "kinds": kinds,
+        "unassigned": route == "review" and not requested and not reviews,
         "stale": route == "author" and days(last_author_activity) >= STALE_DAYS,
     }
 
@@ -285,6 +293,12 @@ def render(prs, source_repo, rules):
     def count(n):
         return f"{n} pull request" + ("" if n == 1 else "s")
 
+    def breakdown(entries):
+        c = Counter(k for e in entries for k in e["kinds"])
+        return " · ".join(f"**{n}** {k}" for k, n in c.most_common()) if c else ""
+
+    unassigned = sum(1 for e in review if e["unassigned"])
+
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
@@ -304,9 +318,12 @@ def render(prs, source_repo, rules):
         details(count(len(hold)), table(hold), open_=True),
         "",
         "## In review",
-        "*Waiting on a reviewer, by area. The people on each heading are that area's code owners.*",
+        "*Waiting on a reviewer, by area. The people on each heading are that area's code owners. "
+        "Waiting is days since the author last pushed or commented.*",
         "",
     ]
+    if unassigned:
+        out += [f"**{unassigned}** with no reviewer requested.", ""]
     ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
     if not ordered_areas:
         out += ["_Nothing here._", ""]
@@ -314,23 +331,27 @@ def render(prs, source_repo, rules):
         items = by_area[area]
         owners = sorted({o for e in items for o in e["area_owners"][area]})
         out += [f"### {area} · {len(items)}" + (f" &nbsp;<sub>{users(owners)}</sub>" if owners else ""), "",
-                details(count(len(items)), table(items), open_=True)]
+                details(count(len(items)), table(items, last_col="Waiting", last_key="idle"), open_=True)]
     out += [
         "",
         "## With authors",
         "*Changes requested, CI failing, merge conflict, needs rebase, or an unanswered question from a reviewer.*",
+        "",
+        breakdown(authors),
         "",
         details(count(len(authors)), table(authors)),
         "",
         "## Stale",
         f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
         "",
+        breakdown(stale),
+        "",
         details(count(len(stale)), table(stale, last_col="Idle", last_key="idle")),
         "",
         "---",
         f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Grouping comes from GitHub's review decision, CI result, "
         "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
-        "Idle is days since the author last pushed or commented.</sub>",
+        "Waiting and Idle are days since the author last pushed or commented.</sub>",
     ]
     return "\n".join(out)
 
