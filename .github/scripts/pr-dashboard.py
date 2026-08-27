@@ -321,9 +321,9 @@ def subsections(entries, key, order, open_=False, label=None, show_empty=False, 
     groups = defaultdict(list)
     for e in entries:
         groups[key(e)].append(e)
-    if not groups:
+    if not groups and not show_empty:
         return EMPTY
-    if len(groups) == 1:
+    if len(groups) == 1 and not show_empty:
         return section(entries, open_=open_, **kw)
     names = [g for g in order if g in groups or show_empty] + sorted(g for g in groups if g not in order)
     name = label or (lambda g: g[0].upper() + g[1:])
@@ -411,15 +411,15 @@ def render(prs, source_repo, rules):
         "",
         heading("With authors", len(authors), "The author of the PR has to do something before review can continue."),
         "",
-        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, mid_col="Blocked by"),
+        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, show_empty=True, mid_col="Blocked by"),
         "",
         heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
-        subsections(hold, lambda e: e["hold"][0], HOLD_LABELS),
+        subsections(hold, lambda e: e["hold"][0], HOLD_LABELS, show_empty=True),
         "",
         heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
-        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
+        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, show_empty=True, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         heading("Automated", len(bots), "Opened by bots."),
         "",
