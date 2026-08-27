@@ -394,7 +394,7 @@ def render(prs, source_repo, rules):
     rows = ["| Reviewer | Code owner for | Requested on |", "|---|---|---:|"]
     for u in sorted(people, key=lambda u: (-load[u], u)):
         rows.append(f"| @{u} | {', '.join(areas_of[u]) or '—'} | {load[u]} |")
-    out += [details("Reviewer load", "\n".join(rows)), ""]
+    out += [details("<b>Reviewer load</b>", "\n".join(rows)), ""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
