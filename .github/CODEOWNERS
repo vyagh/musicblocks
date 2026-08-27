@@ -1,15 +1,17 @@
+# Area: Other
 # Default owner for paths that do not have an area approver yet.
 * @walterbender
 
+# Area: General JS
 # General JavaScript fallback. More specific JavaScript rules below override
 # this for owned areas.
 /js/ @walterbender
 
-# Blocks and runtime
+# Area: Blocks & Runtime
 /js/blocks/ @ssz2605
 /js/js-export/ @ssz2605
 
-# Music, pedagogy, and user-facing interface
+# Area: Music & UI
 /js/widgets/ @walterbender @pikurasa
 /css/ @walterbender @pikurasa
 /header-icons/ @walterbender @pikurasa
@@ -24,6 +26,7 @@
 /js/turtle-singer.js @walterbender @pikurasa
 /js/utils/musicutils.js @walterbender @pikurasa
 
+# Area: Music & UI
 # Music block overrides. These rules come after the broader runtime rule.
 /js/blocks/DrumBlocks.js @walterbender @pikurasa
 /js/blocks/EnsembleBlocks.js @walterbender @pikurasa
@@ -36,11 +39,12 @@
 /js/blocks/ToneBlocks.js @walterbender @pikurasa
 /js/blocks/VolumeBlocks.js @walterbender @pikurasa
 
-# Planet and project sharing
+# Area: Planet
 /planet/ @zealot-zew
 /js/planetInterface.js @zealot-zew
 /js/SaveInterface.js @zealot-zew
 
+# Area: Tests & CI
 # Tests and CI infrastructure. These rules come after source rules so shared
 # test paths do not fall back to Walter or Devin.
 /.github/workflows/ @omsuneri @Ashutoshx7
@@ -61,10 +65,12 @@
 /js/widgets/__tests__/ @omsuneri @Ashutoshx7 @vanshika2720
 /js/turtleactions/__tests__/ @omsuneri @Ashutoshx7 @vanshika2720
 
+# Area: Planet
 # Planet feature tests that live outside the Planet directory.
 /js/__tests__/planetInterface.test.js @zealot-zew
 /js/__tests__/SaveInterface.test.js @zealot-zew
 
+# Area: Tests & CI
 /js/blocks/__tests__/DrumBlocks*.test.js @omsuneri @Ashutoshx7 @vanshika2720
 /js/blocks/__tests__/EnsembleBlocks*.test.js @omsuneri @Ashutoshx7 @vanshika2720
 /js/blocks/__tests__/IntervalsBlocks*.test.js @omsuneri @Ashutoshx7 @vanshika2720
@@ -76,7 +82,7 @@
 /js/blocks/__tests__/ToneBlocks*.test.js @omsuneri @Ashutoshx7 @vanshika2720
 /js/blocks/__tests__/VolumeBlocks*.test.js @omsuneri @Ashutoshx7 @vanshika2720
 
-# Ownership and governance
+# Area: Governance
 /.github/CODEOWNERS @walterbender @pikurasa
 /GOVERNANCE.md @walterbender @pikurasa
 /MAINTAINERS.md @walterbender @pikurasa
