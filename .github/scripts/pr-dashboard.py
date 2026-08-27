@@ -287,7 +287,7 @@ def render(prs, source_repo, rules):
         details(f"Show {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
         "",
         f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')}. "
-        "Grouping is rule-based (review state, CI, conflicts, last activity) and may be off for edge cases.</sub>",
+        "Grouped from review state, CI status, and merge conflicts.</sub>",
     ]
     return "\n".join(out)
 
