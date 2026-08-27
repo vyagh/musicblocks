@@ -13,9 +13,9 @@ Sections:
   Ready to merge      approved by a code owner, CI green, no conflicts
   In review           waiting on a reviewer; also shown per CODEOWNERS area
   On hold             carries a HOLD_LABELS label (e.g. string freeze)
-  With authors        changes requested, CI failing, merge conflict, a
-                      BLOCKER_LABELS label, or a reviewer's comment newer
-                      than the author's last push or comment
+  With authors        changes requested, CI failing, merge conflict, or a
+                      reviewer's comment newer than the author's last push
+                      or comment
   Stale               blocked, and the author has been silent STALE_DAYS+
 
 Areas come from .github/CODEOWNERS in the source repo: each changed file is
@@ -35,7 +35,6 @@ STALE_DAYS = 90
 TITLE_MAX = 72
 AREA_ORDER = ["Music & UI", "Blocks & Runtime", "Tests & CI", "Planet", "Docs & i18n", "Governance", "General JS", "Other"]
 HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
-BLOCKER_LABELS = ["needs-rebase"]    # labels that mean the author has to act
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
 
 # Path prefix -> area name. First match wins. Keep in step with MAINTAINERS.md.
@@ -112,7 +111,7 @@ def fetch_codeowners(repo):
         if not line:
             continue
         pattern, *owners = line.split()
-        rules.append((codeowners_regex(pattern), owners))
+        rules.append((codeowners_regex(pattern), owners, pattern))
     return rules
 
 
@@ -138,15 +137,25 @@ def codeowners_regex(pattern):
     return re.compile(prefix + out + suffix)
 
 
+def area_owners_from_rules(raw_rules):
+    """Area -> sorted owners, from the CODEOWNERS patterns themselves."""
+    out = defaultdict(set)
+    for pattern, owners in raw_rules:
+        out[area_for(pattern.lstrip("/"))].update(o.lstrip("@") for o in owners)
+    return out
+
+
 def owners_for(path, rules):
     owners = []
-    for rx, o in rules:
+    for rx, o, _ in rules:
         if rx.search(path):
             owners = o
     return owners
 
 
 def area_for(path):
+    if path.startswith(("js/__tests__/planetInterface", "js/__tests__/SaveInterface")):
+        return "Planet"
     if "__tests__/" in path or path.startswith("cypress"):
         return "Tests & CI"
     for prefix, name in AREAS:
@@ -210,9 +219,6 @@ def evaluate(pr, rules):
         blockers.append("`CI failing`")
     if changes_by:
         blockers.append("`changes requested` " + users(changes_by))
-    for l in labels:
-        if l in BLOCKER_LABELS:
-            blockers.append(f"`{l}`")
     if not blockers and last_other and last_other[0] > last_author_activity:
         blockers.append("`reply to` " + users([last_other[1]]))
 
@@ -220,7 +226,6 @@ def evaluate(pr, rules):
     if conflict: kinds.append("merge conflict")
     if ci in ("FAILURE", "ERROR"): kinds.append("CI failing")
     if changes_by: kinds.append("changes requested")
-    kinds += [l for l in labels if l in BLOCKER_LABELS]
     if not kinds and last_other and last_other[0] > last_author_activity: kinds.append("unanswered question")
 
     if hold:
@@ -251,7 +256,7 @@ def users(logins):
     return ", ".join(f"@{u}" for u in logins)
 
 
-def table(entries, last_col="Age", last_key="age"):
+def table(entries, last_col="Age", last_key="age", show_area=True):
     if not entries:
         return "_Nothing here._"
     head = f"| Pull request | Waiting for | {last_col} |\n|---|---|---:|"
@@ -263,7 +268,8 @@ def table(entries, last_col="Age", last_key="age"):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{' · '.join(e['areas'])} · @{e['author']}</sub> "
+        meta = f"{e['areas'][0]} · @{e['author']}" if show_area else f"@{e['author']}"
+        rows.append(f"| [#{e['number']}]({e['url']}) {title}<br><sub>{meta}</sub> "
                     f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
@@ -276,6 +282,7 @@ def details(summary, body, open_=False):
 
 
 def render(prs, source_repo, rules):
+    owners_by_area = area_owners_from_rules([(pat, o) for _, o, pat in rules])
     entries = [evaluate(pr, rules) for pr in prs if not pr["isDraft"]]
     drafts = sum(1 for pr in prs if pr["isDraft"])
     stale = [e for e in entries if e["stale"]]
@@ -302,20 +309,14 @@ def render(prs, source_repo, rules):
     out = [
         f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        "| Ready to merge | On hold | In review | With authors | Stale | Drafts |",
+        "| Ready to merge | In review | With authors | On hold | Stale | Drafts |",
         "|:---:|:---:|:---:|:---:|:---:|:---:|",
-        f"| [**{len(ready)}**](#ready-to-merge) | [**{len(hold)}**](#on-hold) | [**{len(review)}**](#in-review) "
-        f"| [**{len(authors)}**](#with-authors) | [**{len(stale)}**](#stale) | {drafts} |",
+        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(hold)}** | **{len(stale)}** | {drafts} |",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
         "",
         details(count(len(ready)), table(ready), open_=True),
-        "",
-        "## On hold",
-        f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
-        "",
-        details(count(len(hold)), table(hold), open_=True),
         "",
         "## In review",
         "*Waiting on a reviewer, by area. The people on each heading are that area's code owners. "
@@ -327,19 +328,26 @@ def render(prs, source_repo, rules):
     ordered_areas = [a for a in AREA_ORDER if a in by_area] + sorted(a for a in by_area if a not in AREA_ORDER)
     if not ordered_areas:
         out += ["_Nothing here._", ""]
+    else:
+        legend = " · ".join(f"{a}: {users(sorted(owners_by_area[a]))}" for a in ordered_areas if owners_by_area.get(a))
+        out += [f"<sub>Code owners — {legend}</sub>", ""]
     for area in ordered_areas:
         items = by_area[area]
-        owners = sorted({o for e in items for o in e["area_owners"][area]})
-        out += [f"### {area} · {len(items)}" + (f" &nbsp;<sub>{users(owners)}</sub>" if owners else ""), "",
-                details(count(len(items)), table(items, last_col="Waiting", last_key="idle"), open_=True)]
+        out += [f"### {area} · {len(items)}", "",
+                details(count(len(items)), table(items, last_col="Waiting", last_key="idle", show_area=False), open_=True)]
     out += [
         "",
         "## With authors",
-        "*Changes requested, CI failing, merge conflict, needs rebase, or an unanswered question from a reviewer.*",
+        "*Changes requested, CI failing, merge conflict, or an unanswered question from a reviewer.*",
         "",
         breakdown(authors),
         "",
         details(count(len(authors)), table(authors)),
+        "",
+        "## On hold",
+        f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
+        "",
+        details(count(len(hold)), table(hold)),
         "",
         "## Stale",
         f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
@@ -351,7 +359,8 @@ def render(prs, source_repo, rules):
         "---",
         f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · Grouping comes from GitHub's review decision, CI result, "
         "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
-        "Waiting and Idle are days since the author last pushed or commented.</sub>",
+        "Waiting and Idle are days since the author last pushed or commented · "
+        "Reviewers without CODEOWNERS entries are not shown.</sub>",
     ]
     return "\n".join(out)
 
@@ -364,7 +373,8 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
 
-    body = render(fetch_prs(a.source_repo), a.source_repo, fetch_codeowners(a.source_repo))
+    rules = fetch_codeowners(a.source_repo)
+    body = render(fetch_prs(a.source_repo), a.source_repo, rules)
     if a.dry_run:
         print(body)
         return
