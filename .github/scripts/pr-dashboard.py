@@ -315,7 +315,7 @@ KIND_ACTION = {
 }
 
 
-def subsections(entries, key, order, open_=False, label=None, **kw):
+def subsections(entries, key, order, open_=False, label=None, show_empty=False, **kw):
     """Group entries by key(e) and render each group as one toggle line.
     A single group is rendered as a plain list, since the heading already names it."""
     groups = defaultdict(list)
@@ -325,10 +325,12 @@ def subsections(entries, key, order, open_=False, label=None, **kw):
         return EMPTY
     if len(groups) == 1:
         return section(entries, open_=open_, **kw)
-    names = [g for g in order if g in groups] + sorted(g for g in groups if g not in order)
+    names = [g for g in order if g in groups or show_empty] + sorted(g for g in groups if g not in order)
     name = label or (lambda g: g[0].upper() + g[1:])
-    return "\n".join(details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_)
-                     for g in names)
+    return "\n".join(
+        details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_) if groups.get(g)
+        else f"<b>{name(g)}</b> · 0\n"
+        for g in names)
 
 
 def heading(title, n, blurb):
@@ -403,7 +405,7 @@ def render(prs, source_repo, rules):
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += ["\n".join(owner_rows), "",
-            subsections(review, lambda e: e["primary"], AREA_ORDER,
+            subsections(review, lambda e: e["primary"], AREA_ORDER, show_empty=True,
                         last_col="Waiting", last_key="idle", mid_col="Requested")]
     out += [
         "",
