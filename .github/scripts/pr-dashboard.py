@@ -403,7 +403,7 @@ def render(prs, source_repo, rules):
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += ["\n".join(owner_rows), "",
-            subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
+            subsections(review, lambda e: e["primary"], AREA_ORDER,
                         last_col="Waiting", last_key="idle", mid_col="Requested")]
     out += [
         "",
