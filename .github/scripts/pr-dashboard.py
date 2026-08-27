@@ -218,13 +218,13 @@ def evaluate(pr, rules):
     reviewers = []
     blockers = []
     if conflict:
-        blockers.append("`merge conflict`")
+        blockers.append("<kbd>merge conflict</kbd>")
     if ci in ("FAILURE", "ERROR"):
-        blockers.append("`CI failing`")
+        blockers.append("<kbd>CI failing</kbd>")
     if changes_by:
-        blockers.append("`changes requested` by " + users(changes_by))
+        blockers.append("<kbd>changes requested</kbd> " + users(changes_by))
     if not blockers and last_other and last_other[0] > last_author_activity:
-        blockers.append("`reply to` " + last_other[1])
+        blockers.append("<kbd>reply to</kbd> " + last_other[1])
 
     kinds = []
     if conflict: kinds.append("merge conflict")
@@ -233,20 +233,20 @@ def evaluate(pr, rules):
     if not kinds and last_other and last_other[0] > last_author_activity: kinds.append("unanswered question")
 
     if hold:
-        route, waiting = "hold", " ".join(f"`{l}`" for l in hold) + (" · " + " ".join(blockers) if blockers else "")
+        route, waiting = "hold", " ".join(f"<kbd>{l}</kbd>" for l in hold) + (" · " + " ".join(blockers) if blockers else "")
     elif blockers:
         route, waiting = "author", " ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
-        route, waiting = "ready", "`approved` by " + users(approved_by)
+        route, waiting = "ready", "<kbd>approved</kbd> " + users(approved_by)
     else:
         route = "review"
         if requested:
             waiting, reviewers = users(requested), requested
         elif reviews:
             reviewers = sorted({r["author"]["login"] for r in reviews})
-            waiting = users(reviewers) + " `re-review`"
+            waiting = users(reviewers) + " <kbd>re-review</kbd>"
         else:
-            waiting, reviewers = "`unassigned`", []
+            waiting, reviewers = "<kbd>unassigned</kbd>", []
 
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
@@ -328,12 +328,24 @@ def render(prs, source_repo, rules):
 
     unassigned = sum(1 for e in review if e["unassigned"])
 
+    def badge(label, n, color):
+        text = label.replace(" ", "_").replace("-", "--")
+        return f"![{label}: {n}](https://img.shields.io/badge/{text}-{n}-{color}?style=flat-square)"
+
     out = [
-        f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
-        "",
-        "| Ready to merge | In review | With authors | On hold | Stale |",
-        "|:---:|:---:|:---:|:---:|:---:|",
-        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(hold)}** | **{len(stale)}** |",
+        '<p align="center">',
+        f'  <strong>{source_repo}</strong> · open pull requests by who acts next<br>',
+        f"  <sub>updated daily · {NOW.strftime('%Y-%m-%d')}</sub>",
+        "</p>",
+        '<p align="center">',
+        "  " + " ".join([
+            badge("ready to merge", len(ready), "2ea043"),
+            badge("in review", len(review), "0969da"),
+            badge("with authors", len(authors), "bf8700"),
+            badge("on hold", len(hold), "8b949e"),
+            badge("stale", len(stale), "cf222e"),
+        ]),
+        "</p>",
         "",
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
@@ -383,11 +395,12 @@ def render(prs, source_repo, rules):
         "",
         section(bots),
         "",
-        "---",
-        f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · {drafts} draft PRs not shown · Grouping comes from GitHub's review decision, CI result, "
-        "merge state, labels, and latest activity · Age is days since the PR was opened, bold past 60 · "
-        "Waiting and Idle are days since the author last pushed or commented · "
-        "Reviewers without CODEOWNERS entries are not shown.</sub>",
+        "> [!NOTE]",
+        f"> **How this is grouped.** Ready to merge: approved by a code owner, CI green, no conflicts. "
+        "With authors: changes requested, CI failing, merge conflict, or a reviewer's comment newer than the author's last push. "
+        f"Stale: with authors and silent {STALE_DAYS}+ days. On hold: labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}. "
+        "Waiting / Idle: days since the author last pushed or commented. Ages past 60 days are bold. "
+        f"Drafts ({drafts}) and reviewers without CODEOWNERS entries are not shown.",
     ]
     return "\n".join(out)
 
