@@ -183,24 +183,24 @@ def evaluate(pr, rules):
 
     blockers = []
     if conflict:
-        blockers.append("merge conflict")
+        blockers.append("`merge conflict`")
     if ci in ("FAILURE", "ERROR"):
-        blockers.append("CI failing")
+        blockers.append("`CI failing`")
     if changes_by:
-        blockers.append("changes requested by " + users(changes_by))
+        blockers.append("`changes requested` " + users(changes_by))
 
     if blockers:
-        route, waiting = "author", ", ".join(blockers)
+        route, waiting = "author", " ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
-        route, waiting = "ready", ("approved by " + users(approved_by)) if approved_by else "approved"
+        route, waiting = "ready", "`approved` " + users(approved_by)
     else:
         route = "review"
         if requested:
             waiting = users(requested)
         elif reviews:
-            waiting = "another look from " + users(sorted({r["author"]["login"] for r in reviews}))
+            waiting = "`re-review` " + users(sorted({r["author"]["login"] for r in reviews}))
         else:
-            waiting = "no reviewer requested"
+            waiting = "`unassigned`"
 
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
@@ -222,8 +222,10 @@ def table(entries, last_col="Age", last_key="age"):
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
         title = e["title"].replace("|", "\\|")
+        n = e[last_key]
+        age = f"**{n}d**" if n >= 60 else f"{n}d"
         rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
-                    f"| {e['waiting']} | {e[last_key]}d |")
+                    f"| {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -249,45 +251,40 @@ def render(prs, source_repo, rules):
             by_area[a].append(e)
 
     out = [
-        f"Open pull requests in {source_repo}, grouped by who acts next. "
-        f"Updated daily. {drafts} drafts not shown.",
+        f"Open pull requests in **{source_repo}**, grouped by who acts next. Updated daily.",
         "",
-        f"**{len(entries)} open** — {len(ready)} ready to merge, {len(review)} in review, "
-        f"{len(authors)} with authors, {len(stale)} stale",
+        "| Ready to merge | In review | With authors | Stale | Drafts |",
+        "|:---:|:---:|:---:|:---:|:---:|",
+        f"| **{len(ready)}** | **{len(review)}** | **{len(authors)}** | **{len(stale)}** | {drafts} |",
         "",
         "## Ready to merge",
-        "",
-        "Approved by a code owner, CI green, no conflicts.",
+        "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
         "",
         table(ready),
         "",
         "## In review",
+        "*Waiting on a reviewer. The full list, then the same PRs by area with that area's code owners.*",
         "",
-        "Waiting on a reviewer. Same list twice: all together, then by area.",
-        "",
-        details(f"All · {len(review)}", table(review), open_=True),
+        details(f"All &nbsp;·&nbsp; {len(review)}", table(review), open_=True),
     ]
     for area, items in sorted(by_area.items(), key=lambda kv: -len(kv[1])):
         owners = sorted({o for e in items for o in e["area_owners"][area]})
-        label = f"{area} · {len(items)}" + (f" &nbsp;<sub>{users(owners)}</sub>" if owners else "")
+        label = f"{area} &nbsp;·&nbsp; {len(items)}" + (f" &nbsp;&nbsp;<sub>{users(owners)}</sub>" if owners else "")
         out.append(details(label, table(items)))
     out += [
         "",
         "## With authors",
+        "*Changes requested, CI failing, or merge conflict.*",
         "",
-        "Changes requested, CI failing, or merge conflict.",
-        "",
-        details(f"Show {len(authors)}", table(authors)),
+        details(f"Show &nbsp;·&nbsp; {len(authors)}", table(authors)),
         "",
         "## Stale",
+        f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
         "",
-        f"Blocked, and the author has not pushed or commented for {STALE_DAYS} days or more. "
-        "Candidates to close or take over.",
+        details(f"Show &nbsp;·&nbsp; {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
         "",
-        details(f"Show {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
-        "",
-        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')}. "
-        "Grouped from review state, CI status, and merge conflicts.</sub>",
+        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · grouped from review state, CI status, and merge conflicts · "
+        "ages over 60 days in bold.</sub>",
     ]
     return "\n".join(out)
 
