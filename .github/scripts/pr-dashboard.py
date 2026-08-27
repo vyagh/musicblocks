@@ -8,19 +8,22 @@ Reads open PRs from --source-repo and writes the rendered dashboard into the
 body of issue N on --issue-repo. Uses the `gh` CLI for all GitHub calls, so
 the only credential needed is GH_TOKEN with permission to edit that issue.
 
-Grouping rules (deterministic, no external services):
+Sections:
 
-  Waiting on author      changes requested, CI failing, merge conflict,
-                         or a reviewer was the last person to act
-  Waiting on maintainer  approved by a code owner and nothing blocks merge
-  Waiting on reviewer    everything else (review requested, author acted last)
+  Ready to merge      approved by a code owner, CI green, no conflicts
+  In review           waiting on a reviewer; also shown per CODEOWNERS area
+  With authors        changes requested, CI failing, merge conflict, or an
+                      unanswered review
+  Stale               blocked, and the author has been silent STALE_DAYS+
 
-Authors silent for STALE_DAYS while blocked are listed separately as
-"likely abandoned" so maintainers have a close-candidate list.
+Areas come from .github/CODEOWNERS in the source repo: each changed file is
+matched against the CODEOWNERS rules (last match wins) and mapped to an area
+name by path prefix in AREAS.
 """
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -28,15 +31,33 @@ from datetime import datetime, timezone
 
 STALE_DAYS = 90
 
+# Path prefix -> area name. First match wins. Keep in step with MAINTAINERS.md.
+AREAS = [
+    ("planet/", "Planet"), ("js/planetInterface.js", "Planet"), ("js/SaveInterface.js", "Planet"),
+    ("js/__tests__/planetInterface", "Planet"), ("js/__tests__/SaveInterface", "Planet"),
+    (".github/workflows/", "Tests & CI"), (".husky/", "Tests & CI"), ("cypress", "Tests & CI"),
+    ("test/", "Tests & CI"), ("jest.config", "Tests & CI"), ("eslint.config", "Tests & CI"),
+    ("commitlint", "Tests & CI"), ("lighthouserc", "Tests & CI"), (".prettier", "Tests & CI"),
+    ("__tests__/", "Tests & CI"),
+    ("js/blocks/", "Blocks & Runtime"), ("js/js-export/", "Blocks & Runtime"), ("js/activity.js", "Blocks & Runtime"),
+    ("js/widgets/", "Music & UI"), ("css/", "Music & UI"), ("header-icons/", "Music & UI"),
+    ("js/turtleactions/", "Music & UI"), ("lilypond/", "Music & UI"), ("examples/", "Music & UI"),
+    ("lessonPlan/", "Music & UI"), ("js/abc.js", "Music & UI"), ("js/lilypond.js", "Music & UI"),
+    ("js/notation.js", "Music & UI"), ("js/turtle-singer.js", "Music & UI"), ("js/utils/musicutils.js", "Music & UI"),
+    (".github/CODEOWNERS", "Governance"), ("GOVERNANCE.md", "Governance"), ("MAINTAINERS.md", "Governance"),
+    ("locales/", "Docs & i18n"), ("po/", "Docs & i18n"), ("guide/", "Docs & i18n"), ("README", "Docs & i18n"),
+    ("documentation/", "Docs & i18n"), ("js/", "General JS"),
+]
+
 QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(first: 100, after: $cursor, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC}) {
+    pullRequests(first: 50, after: $cursor, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title url isDraft createdAt reviewDecision mergeable
         author { login }
-        labels(first: 10) { nodes { name } }
+        files(first: 100) { nodes { path } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
         latestReviews(first: 20) { nodes { author { login } state submittedAt } }
         reviewThreads(first: 50) { nodes { isResolved } }
@@ -48,8 +69,6 @@ query($owner: String!, $name: String!, $cursor: String) {
 }
 """
 
-ICON = {"APPROVED": "✅", "CHANGES_REQUESTED": "🔴", "COMMENTED": "💬", "PENDING": "⏳"}
-CI = {"SUCCESS": "✅", "FAILURE": "❌", "ERROR": "❌", "PENDING": "🟡", "EXPECTED": "🟡"}
 NOW = datetime.now(timezone.utc)
 
 
@@ -74,6 +93,59 @@ def fetch_prs(repo):
         cursor = data["pageInfo"]["endCursor"]
 
 
+def fetch_codeowners(repo):
+    """Return [(regex, [owners])] in file order. Empty list if the file is missing."""
+    try:
+        text = gh("api", f"repos/{repo}/contents/.github/CODEOWNERS", "-H", "Accept: application/vnd.github.raw")
+    except SystemExit:
+        return []
+    rules = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        pattern, *owners = line.split()
+        rules.append((codeowners_regex(pattern), owners))
+    return rules
+
+
+def codeowners_regex(pattern):
+    anchored = pattern.startswith("/")
+    p = pattern.lstrip("/")
+    dir_only = p.endswith("/")
+    p = p.rstrip("/")
+    out = ""
+    i = 0
+    while i < len(p):
+        c = p[i]
+        if p.startswith("**", i):
+            out += ".*"
+            i += 2
+            if i < len(p) and p[i] == "/":
+                i += 1
+            continue
+        out += "[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c)
+        i += 1
+    prefix = "^" if anchored else "^(?:.*/)?"
+    suffix = "(?:/.*)?$" if dir_only or "." not in p.rsplit("/", 1)[-1] else "$"
+    return re.compile(prefix + out + suffix)
+
+
+def owners_for(path, rules):
+    owners = []
+    for rx, o in rules:
+        if rx.search(path):
+            owners = o
+    return owners
+
+
+def area_for(path):
+    for prefix, name in AREAS:
+        if path.startswith(prefix):
+            return name
+    return "Other"
+
+
 def ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
@@ -82,8 +154,7 @@ def days(dt):
     return (NOW - dt).days
 
 
-def evaluate(pr):
-    """Return a dict describing one PR: route, blockers, reviewers, dates."""
+def evaluate(pr, rules):
     author = (pr["author"] or {}).get("login", "ghost")
     commit = pr["commits"]["nodes"][0]["commit"] if pr["commits"]["nodes"] else None
     ci = (commit.get("statusCheckRollup") or {}).get("state") if commit else None
@@ -97,7 +168,11 @@ def evaluate(pr):
         if login:
             requested.append(login)
 
-    # Activity timeline: (time, actor)
+    area_owners = defaultdict(set)
+    for f in pr["files"]["nodes"]:
+        area_owners[area_for(f["path"])].update(o.lstrip("@") for o in owners_for(f["path"], rules))
+    areas = sorted(area_owners) or ["Other"]
+
     events = []
     if commit:
         events.append((ts(commit["committedDate"]), author))
@@ -120,112 +195,108 @@ def evaluate(pr):
     if ci in ("FAILURE", "ERROR"):
         blockers.append("CI failing")
     if changes_by:
-        blockers.append("changes requested by " + ", ".join(f"@{u}" for u in changes_by))
+        blockers.append("changes requested by " + users(changes_by))
 
     if blockers:
-        route = "author"
+        route, waiting = "author", ", ".join(blockers)
     elif pr["reviewDecision"] == "APPROVED":
-        route = "maintainer"
-        blockers.append("ready to merge")
+        route, waiting = "ready", "approved by " + users(approved_by)
     elif last_actor != author and (reviews or open_threads):
         route = "author"
-        blockers.append(f"reply to @{last_actor}" + (f" ({open_threads} open threads)" if open_threads else ""))
+        waiting = f"reply to @{last_actor}" + (f", {open_threads} open threads" if open_threads > 1 else "")
     else:
-        route = "reviewer"
+        route = "review"
         if requested:
-            blockers.append("review by " + ", ".join(f"@{u}" for u in requested))
+            waiting = users(requested)
         elif reviews:
-            blockers.append("author replied, needs another look")
+            waiting = "another look from " + users(sorted({r["author"]["login"] for r in reviews}))
         else:
-            blockers.append("no reviewer assigned")
-
-    reviewer_cells = [f"{r['author']['login']}&nbsp;{ICON.get(r['state'], '')}" for r in reviews]
-    seen = {r["author"]["login"] for r in reviews}
-    reviewer_cells += [f"{u}&nbsp;⏳" for u in requested if u not in seen]
+            waiting = "no reviewer requested"
 
     return {
         "number": pr["number"], "title": pr["title"], "url": pr["url"], "author": author,
-        "route": route, "blockers": blockers, "reviewers": reviewer_cells,
-        "requested": requested, "approved_by": approved_by,
-        "ci": CI.get(ci, "—"), "conflict": conflict,
-        "age": days(ts(pr["createdAt"])), "author_idle": days(last_author_activity),
-        "labels": [l["name"] for l in pr["labels"]["nodes"]],
-        "stale": bool(blockers) and route == "author" and days(last_author_activity) >= STALE_DAYS,
+        "route": route, "waiting": waiting, "areas": areas, "area_owners": area_owners, "requested": requested,
+        "age": days(ts(pr["createdAt"])), "idle": days(last_author_activity),
+        "stale": route == "author" and bool(blockers) and days(last_author_activity) >= STALE_DAYS,
     }
 
 
-HEAD = "| PR | Author | Why | Reviewers | CI | Conflicts | Age |\n|---|---|---|---|:---:|:---:|:---:|"
+def users(logins):
+    return ", ".join(f"@{u}" for u in logins)
 
 
-def row(e):
-    title = e["title"].replace("|", "\\|")
-    return "| [#{n}]({u}) {t} | {a} | {w} | {r} | {ci} | {cf} | {age}d |".format(
-        n=e["number"], u=e["url"], t=title, a=e["author"], w="; ".join(e["blockers"]),
-        r="<br>".join(e["reviewers"]) or "—", ci=e["ci"],
-        cf="❌" if e["conflict"] else "✅", age=e["age"])
+def table(entries, last_col="Age", last_key="age"):
+    if not entries:
+        return "_Nothing here._"
+    head = f"| PR | Area | Author | Waiting for | {last_col} |\n|---|---|---|---|---:|"
+    rows = []
+    for e in sorted(entries, key=lambda e: -e[last_key]):
+        title = e["title"].replace("|", "\\|")
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {', '.join(e['areas'])} | @{e['author']} "
+                    f"| {e['waiting']} | {e[last_key]}d |")
+    return "\n".join([head, *rows])
 
 
-def table(rows):
-    return "\n".join([HEAD, *rows]) if rows else "_None._"
-
-
-def section(title, body, open_=True, blurb=""):
+def details(summary, body, open_=False):
     tag = "<details open>" if open_ else "<details>"
-    out = [tag, f"<summary><b>{title}</b></summary>", ""]
-    if blurb:
-        out += [blurb, ""]
-    out += [body, "", "</details>", ""]
-    return "\n".join(out)
+    return f"{tag}\n<summary>{summary}</summary>\n\n{body}\n\n</details>\n"
 
 
-def render(prs, source_repo):
-    evaluated = [evaluate(pr) for pr in prs if not pr["isDraft"]]
+def render(prs, source_repo, rules):
+    entries = [evaluate(pr, rules) for pr in prs if not pr["isDraft"]]
     drafts = sum(1 for pr in prs if pr["isDraft"])
-    by_route = defaultdict(list)
-    stale = []
-    for e in evaluated:
-        (stale if e["stale"] else by_route[e["route"]]).append(e)
+    stale = [e for e in entries if e["stale"]]
+    live = [e for e in entries if not e["stale"]]
+    ready = [e for e in live if e["route"] == "ready"]
+    review = [e for e in live if e["route"] == "review"]
+    authors = [e for e in live if e["route"] == "author"]
 
-    # Per-reviewer queues: PRs where this person is requested and the ball is with reviewers.
-    queues = defaultdict(list)
-    for e in by_route["reviewer"]:
-        for u in e["requested"]:
-            queues[u].append(e)
+    by_area = defaultdict(list)
+    for e in review:
+        for a in e["areas"]:
+            by_area[a].append(e)
 
-    n_m, n_r, n_a = (len(by_route[k]) for k in ("maintainer", "reviewer", "author"))
     out = [
-        "> [!NOTE]",
-        f"> Open non-draft pull requests in `{source_repo}`, grouped by who is expected to act next. "
-        f"Refreshed automatically once a day; {drafts} draft PR(s) omitted. "
-        "The grouping uses simple rules (review state, CI, conflicts, who spoke last) and can be wrong.",
-        ">",
-        "> Reviewers: ✅ approved · 🔴 changes requested · 💬 commented · ⏳ review requested.",
+        f"Open pull requests in {source_repo}, grouped by who acts next. "
+        f"Updated daily. {drafts} drafts not shown.",
         "",
-        f"**{len(evaluated)} open** · 🟢 **{n_m}** ready to merge · 👀 **{n_r}** waiting on reviewers · "
-        f"✍️ **{n_a}** waiting on authors · 💤 **{len(stale)}** likely abandoned",
+        f"**{len(entries)} open** — {len(ready)} ready to merge, {len(review)} in review, "
+        f"{len(authors)} with authors, {len(stale)} stale",
         "",
+        "## Ready to merge",
+        "",
+        "Approved by a code owner, CI green, no conflicts.",
+        "",
+        table(ready),
+        "",
+        "## In review",
+        "",
+        "Waiting on a reviewer. Same list twice: all together, then by area.",
+        "",
+        details(f"All · {len(review)}", table(review), open_=True),
     ]
-
-    out.append(section(f"🟢 Waiting on maintainers ({n_m})",
-                       table([row(e) for e in sorted(by_route["maintainer"], key=lambda e: -e["age"])]),
-                       blurb="Approved by a code owner and not blocked. Needs a merge decision."))
-    out.append(section(f"👀 Waiting on reviewers ({n_r})",
-                       table([row(e) for e in sorted(by_route["reviewer"], key=lambda e: -e["age"])]),
-                       blurb="No review yet, or the author has answered and is waiting."))
-    if queues:
-        parts = []
-        for u, items in sorted(queues.items(), key=lambda kv: -len(kv[1])):
-            parts.append(section(f"@{u} · {len(items)}", table([row(e) for e in sorted(items, key=lambda e: -e['age'])]), open_=False))
-        out.append(section(f"📋 Review queue by person ({len(queues)})", "\n".join(parts), open_=False,
-                           blurb="The same PRs as above, one list per requested reviewer."))
-    out.append(section(f"✍️ Waiting on authors ({n_a})",
-                       table([row(e) for e in sorted(by_route["author"], key=lambda e: -e["age"])]), open_=False,
-                       blurb="Changes requested, CI failing, merge conflict, or an unanswered review."))
-    out.append(section(f"💤 Likely abandoned ({len(stale)})",
-                       table([row(e) for e in sorted(stale, key=lambda e: -e["author_idle"])]), open_=False,
-                       blurb=f"Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. "
-                             "Candidates to close or take over."))
-    out.append(f"_Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')}._")
+    for area, items in sorted(by_area.items(), key=lambda kv: -len(kv[1])):
+        owners = sorted({o for e in items for o in e["area_owners"][area]})
+        label = f"{area} · {len(items)}" + (f" &nbsp;<sub>{users(owners)}</sub>" if owners else "")
+        out.append(details(label, table(items)))
+    out += [
+        "",
+        "## With authors",
+        "",
+        "Changes requested, CI failing, merge conflict, or an unanswered review.",
+        "",
+        details(f"Show {len(authors)}", table(authors)),
+        "",
+        "## Stale",
+        "",
+        f"Blocked, and the author has not pushed or commented for {STALE_DAYS} days or more. "
+        "Candidates to close or take over.",
+        "",
+        details(f"Show {len(stale)}", table(stale, last_col="Idle", last_key="idle")),
+        "",
+        f"<sub>Last updated {NOW.strftime('%Y-%m-%d %H:%M UTC')}. "
+        "Grouping is rule-based (review state, CI, conflicts, last activity) and may be off for edge cases.</sub>",
+    ]
     return "\n".join(out)
 
 
@@ -237,7 +308,7 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
 
-    body = render(fetch_prs(a.source_repo), a.source_repo)
+    body = render(fetch_prs(a.source_repo), a.source_repo, fetch_codeowners(a.source_repo))
     if a.dry_run:
         print(body)
         return
