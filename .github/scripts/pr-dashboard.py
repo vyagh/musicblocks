@@ -315,21 +315,29 @@ KIND_ACTION = {
 }
 
 
-def subsections(entries, key, order, open_=False, label=None, show_empty=False, **kw):
-    """Group entries by key(e) and render each group as one toggle line.
-    A single group is rendered as a plain list, since the heading already names it."""
+def subsections(entries, key, order, open_=False, label=None, show_empty=False, totals=None, **kw):
+    """Group entries and render each group as one toggle line.
+    key(e) may return one group or a list of groups (the entry then appears under each).
+    totals(e) -> list of groups to count for a '(n total)' suffix; used when only the
+    first of several blockers decides placement."""
     groups = defaultdict(list)
     for e in entries:
-        groups[key(e)].append(e)
+        ks = key(e)
+        for k in (ks if isinstance(ks, list) else [ks]):
+            groups[k].append(e)
     if not groups and not show_empty:
         return EMPTY
     if len(groups) == 1 and not show_empty:
         return section(entries, open_=open_, **kw)
+    total = Counter(k for e in entries for k in totals(e)) if totals else {}
     names = [g for g in order if g in groups or show_empty] + sorted(g for g in groups if g not in order)
     name = label or (lambda g: g[0].upper() + g[1:])
-    return "\n".join(
-        details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw) if groups.get(g) else EMPTY, open_=open_)
-        for g in names)
+    out = []
+    for g in names:
+        n = len(groups[g])
+        extra = f" <sub>({total[g]} total)</sub>" if totals and total.get(g, 0) > n else ""
+        out.append(details(f"<b>{name(g)}</b> · {n}{extra}", table(groups[g], **kw) if groups.get(g) else EMPTY, open_=open_))
+    return "\n".join(out)
 
 
 def heading(title, n, blurb):
@@ -390,7 +398,7 @@ def render(prs, source_repo, rules):
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review), "**Code owners, start here.** These PRs are waiting on you, not on their authors. Waiting is how many days you have had each one."),
+        heading("In review", len(review), "**Code owners, start here.** These PRs are waiting on you, not on their authors. A PR touching two areas is listed under both. Waiting is how many days you have had each one."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
@@ -404,13 +412,13 @@ def render(prs, source_repo, rules):
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
     out += ["\n".join(owner_rows), "",
-            subsections(review, lambda e: e["primary"], AREA_ORDER, show_empty=True,
+            subsections(review, lambda e: e["areas"], AREA_ORDER, show_empty=True,
                         last_col="Waiting", last_key="idle", mid_col="Requested")]
     out += [
         "",
-        heading("With authors", len(authors), "The author of the PR has to do something before review can continue."),
+        heading("With authors", len(authors), "The author of the PR has to do something before review can continue. Each PR is listed under its first blocker; the row shows all of them."),
         "",
-        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, mid_col="Blocked by"),
+        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, totals=lambda e: e["kinds"], mid_col="Blocked by"),
         "",
         heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
@@ -418,7 +426,7 @@ def render(prs, source_repo, rules):
         "",
         heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
-        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
+        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, totals=lambda e: e["kinds"], last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         heading("Automated", len(bots), "Opened by bots."),
         "",
