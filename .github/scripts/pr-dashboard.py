@@ -38,7 +38,7 @@ AREAS = [
     (".github/workflows/", "Tests & CI"), (".husky/", "Tests & CI"), ("cypress", "Tests & CI"),
     ("test/", "Tests & CI"), ("jest.config", "Tests & CI"), ("eslint.config", "Tests & CI"),
     ("commitlint", "Tests & CI"), ("lighthouserc", "Tests & CI"), (".prettier", "Tests & CI"),
-    ("__tests__/", "Tests & CI"),
+    
     ("js/blocks/", "Blocks & Runtime"), ("js/js-export/", "Blocks & Runtime"), ("js/activity.js", "Blocks & Runtime"),
     ("js/widgets/", "Music & UI"), ("css/", "Music & UI"), ("header-icons/", "Music & UI"),
     ("js/turtleactions/", "Music & UI"), ("lilypond/", "Music & UI"), ("examples/", "Music & UI"),
@@ -140,6 +140,8 @@ def owners_for(path, rules):
 
 
 def area_for(path):
+    if "__tests__/" in path or path.startswith("cypress"):
+        return "Tests & CI"
     for prefix, name in AREAS:
         if path.startswith(prefix):
             return name
