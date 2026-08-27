@@ -66,7 +66,8 @@ query($owner: String!, $name: String!, $cursor: String) {
         number title url isDraft createdAt reviewDecision mergeable
         author { login __typename }
         labels(first: 20) { nodes { name } }
-        files(first: 100) { nodes { path } }
+        files(first: 100) { totalCount nodes { path } }
+        reviewThreads(first: 50) { nodes { comments(last: 1) { nodes { author { login __typename } createdAt } } } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
         latestReviews(first: 20) { nodes { author { login __typename } state submittedAt } }
         comments(last: 10) { nodes { author { login __typename } createdAt } }
@@ -222,7 +223,8 @@ def evaluate(pr, rules):
     for r in pr["latestReviews"]["nodes"]:
         if human(r):
             (author_times if r["author"]["login"] == author else other_times).append((ts(r["submittedAt"]), r["author"]["login"]))
-    for c in pr["comments"]["nodes"]:
+    inline = [t["comments"]["nodes"][-1] for t in pr.get("reviewThreads", {}).get("nodes", []) if t["comments"]["nodes"]]
+    for c in pr["comments"]["nodes"] + inline:
         if human(c):
             (author_times if c["author"]["login"] == author else other_times).append((ts(c["createdAt"]), c["author"]["login"]))
     author_times = [t if isinstance(t, datetime) else t[0] for t in author_times]
@@ -233,6 +235,7 @@ def evaluate(pr, rules):
     approved_by = [r["author"]["login"] for r in reviews if r["state"] == "APPROVED"]
 
     reviewers = []
+    big = pr["files"].get("totalCount", 0) > len(pr["files"]["nodes"])
     blockers = []
     if conflict:
         blockers.append("<kbd>merge conflict</kbd>")
@@ -264,6 +267,9 @@ def evaluate(pr, rules):
             waiting = users(reviewers) + " <kbd>re-review</kbd>"
         else:
             waiting, reviewers = "<kbd>unassigned</kbd>", []
+
+    if big:
+        waiting += f" <kbd>{pr['files']['totalCount']} files</kbd>"
 
     return {
         "number": pr["number"], "title": " ".join(pr["title"].split()), "url": pr["url"], "author": author,
