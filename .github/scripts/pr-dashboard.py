@@ -277,10 +277,11 @@ def section(entries, open_=False, **kw):
     return details(f"{n} pull request" + ("" if n == 1 else "s"), table(entries, **kw), open_=open_)
 
 
-def table(entries, last_col="Age", last_key="age", mid_col="Waiting for"):
+def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author=False):
     if not entries:
         return EMPTY
-    head = f"| Pull request | Author | {mid_col} | {last_col} |\n|---|---|---|---:|"
+    head = (f"| Pull request | Author | {mid_col} | {last_col} |\n|---|---|---|---:|" if author
+            else f"| Pull request | {mid_col} | {last_col} |\n|---|---|---:|")
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
     for e in ordered[:MAX_ROWS]:
@@ -289,7 +290,8 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for"):
             title = title[:TITLE_MAX - 1].rstrip() + "…"
         n = e[last_key]
         age = f"**{n}d**" if n >= 60 else f"{n}d"
-        rows.append(f"| [#{e['number']}]({e['url']}) {title} | {e['author']} | {e['waiting']} | {age} |")
+        who = f" {e['author']} |" if author else ""
+        rows.append(f"| [#{e['number']}]({e['url']}) {title} |{who} {e['waiting']} | {age} |")
     if len(ordered) > MAX_ROWS:
         rows.append(f"\n_and {len(ordered) - MAX_ROWS} more._")
     return "\n".join([head, *rows])
@@ -374,7 +376,7 @@ def render(prs, source_repo, rules):
         "",
         breakdown(stale),
         "",
-        section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by"),
+        section(stale, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         "## Automated",
         "*Opened by bots (dependency bumps, release chores).*",
