@@ -379,7 +379,7 @@ def render(prs, source_repo, rules):
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review), "Who is being asked to review, and how many PRs each. A PR can request more than one reviewer."),
+        heading("In review", len(review), "Waiting on the reviewers listed on each row. Waiting is how many days they have had it."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
@@ -391,11 +391,10 @@ def render(prs, source_repo, rules):
     rows = ["| Reviewer | Code owner for | Requested on |", "|---|---|---:|"]
     for u in sorted(people, key=lambda u: (-load[u], u)):
         rows.append(f"| @{u} | {', '.join(areas_of[u]) or '—'} | {load[u]} |")
-    out += rows + [""]
+    out += [details("Reviewer load", "\n".join(rows)), ""]
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
-    out += ["*The PRs, by area. Waiting is how many days the reviewers have had it.*", "",
-            subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
+    out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
                         last_col="Waiting", last_key="idle", mid_col="Reviewers")]
     out += [
         "",
