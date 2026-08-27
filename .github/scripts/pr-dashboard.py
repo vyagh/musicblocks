@@ -261,9 +261,20 @@ def users(logins):
     return ", ".join(f"@{u}" for u in logins)
 
 
+EMPTY = "_Nothing here._\n"
+
+
+def section(entries, open_=False, **kw):
+    """A collapsible table, or a one-line empty state."""
+    if not entries:
+        return EMPTY
+    n = len(entries)
+    return details(f"{n} pull request" + ("" if n == 1 else "s"), table(entries, **kw), open_=open_)
+
+
 def table(entries, last_col="Age", last_key="age", show_area=True):
     if not entries:
-        return "_Nothing here._"
+        return EMPTY
     head = f"| Pull request | Waiting for | {last_col} |\n|---|---|---:|"
     rows = []
     ordered = sorted(entries, key=lambda e: -e[last_key])
@@ -284,8 +295,6 @@ def table(entries, last_col="Age", last_key="age", show_area=True):
 
 
 def details(summary, body, open_=False):
-    if body.startswith("_"):
-        return body + "\n"
     tag = "<details open>" if open_ else "<details>"
     return f"{tag}\n<summary>{summary}</summary>\n\n{body}\n\n</details>\n"
 
@@ -310,9 +319,6 @@ def render(prs, source_repo, rules):
     for e in review:
         by_area[e["primary"]].append(e)
 
-    def count(n):
-        return f"{n} pull request" + ("" if n == 1 else "s")
-
     def breakdown(entries):
         c = Counter(k for e in entries for k in e["kinds"])
         return " · ".join(f"**{n}** {k}" for k, n in c.most_common()) if c else ""
@@ -329,7 +335,7 @@ def render(prs, source_repo, rules):
         "## Ready to merge",
         "*Approved by a code owner, CI green, no conflicts. Needs a merge decision.*",
         "",
-        details(count(len(ready)), table(ready), open_=True),
+        section(ready, open_=True),
         "",
         "## In review",
         "*Waiting on a reviewer, by area. Each PR is listed once, under the most specific area it touches. "
@@ -347,7 +353,7 @@ def render(prs, source_repo, rules):
     for area in ordered_areas:
         items = by_area[area]
         out += [f"### {area}", "",
-                details(count(len(items)), table(items, last_col="Waiting", last_key="idle", show_area=False), open_=True)]
+                section(items, open_=True, last_col="Waiting", last_key="idle", show_area=False)]
     out += [
         "",
         "## With authors",
@@ -355,24 +361,24 @@ def render(prs, source_repo, rules):
         "",
         breakdown(authors),
         "",
-        details(count(len(authors)), table(authors)),
+        section(authors),
         "",
         "## On hold",
         f"*Labelled {', '.join(f'`{l}`' for l in HOLD_LABELS)}: reviewed, but merging waits on the project.*",
         "",
-        details(count(len(hold)), table(hold)),
+        section(hold),
         "",
         "## Stale",
         f"*Blocked, and the author has not pushed or commented for {STALE_DAYS}+ days. Candidates to close or take over.*",
         "",
         breakdown(stale),
         "",
-        details(count(len(stale)), table(stale, last_col="Idle", last_key="idle")),
+        section(stale, last_col="Idle", last_key="idle"),
         "",
         "## Automated",
         "*Opened by bots (dependency bumps, release chores).*",
         "",
-        details(count(len(bots)), table(bots)),
+        section(bots),
         "",
         "---",
         f"<sub>Updated {NOW.strftime('%Y-%m-%d %H:%M UTC')} · {drafts} draft PRs not shown · Grouping comes from GitHub's review decision, CI result, "
