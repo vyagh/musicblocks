@@ -35,7 +35,7 @@ STALE_DAYS = 90
 TITLE_MAX = 72
 AREA_ORDER = ["Music & UI", "Blocks & Runtime", "Planet", "Docs & i18n", "Governance", "Tests & CI", "General JS", "Other"]
 GENERIC_AREAS = {"Tests & CI", "General JS", "Other"}  # used as a PR's area only when nothing more specific applies
-HOLD_LABELS = ["String Freeze"]      # approved but deliberately not merged yet; shown in their own section
+HOLD_LABELS = ["String Freeze", "Code Freeze"]      # approved but deliberately not merged yet; shown in their own section
 MAX_ROWS = 120  # per table; keeps the issue body under GitHub's 65 KB limit
 
 # Path prefix -> area name. First match wins. Keep in step with MAINTAINERS.md.
