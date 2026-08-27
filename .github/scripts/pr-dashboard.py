@@ -330,7 +330,7 @@ def render(prs, source_repo, rules):
 
     def badge(label, n, color):
         text = label.replace(" ", "_").replace("-", "--")
-        return f"![{label}: {n}](https://img.shields.io/badge/{text}-{n}-{color}?style=flat-square)"
+        return f'<img alt="{label}: {n}" src="https://img.shields.io/badge/{text}-{n}-{color}?style=flat-square">'
 
     out = [
         '<p align="center">',
