@@ -307,9 +307,15 @@ def table(entries, last_col="Age", last_key="age", mid_col="Waiting for", author
 
 
 KIND_ORDER = ["merge conflict", "CI failing", "changes requested", "unanswered question"]
+KIND_ACTION = {
+    "merge conflict": "Fix merge conflict",
+    "CI failing": "Fix CI",
+    "changes requested": "Address requested changes",
+    "unanswered question": "Reply to reviewer",
+}
 
 
-def subsections(entries, key, order, open_=False, **kw):
+def subsections(entries, key, order, open_=False, label=None, **kw):
     """Group entries by key(e) and render each group as one toggle line.
     A single group is rendered as a plain list, since the heading already names it."""
     groups = defaultdict(list)
@@ -320,7 +326,8 @@ def subsections(entries, key, order, open_=False, **kw):
     if len(groups) == 1:
         return section(entries, open_=open_, **kw)
     names = [g for g in order if g in groups] + sorted(g for g in groups if g not in order)
-    return "\n".join(details(f"<b>{g[0].upper() + g[1:]}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_)
+    name = label or (lambda g: g[0].upper() + g[1:])
+    return "\n".join(details(f"<b>{name(g)}</b> · {len(groups[g])}", table(groups[g], **kw), open_=open_)
                      for g in names)
 
 
@@ -382,7 +389,7 @@ def render(prs, source_repo, rules):
         "",
         section(ready, open_=True),
         "",
-        heading("In review", len(review), "Waiting on the people requested on each row. Waiting is how many days they have had it."),
+        heading("In review", len(review), "Someone other than the author has to act: the people requested on each row. Waiting is how many days they have had it."),
         "",
     ]
     load = Counter(u for e in review for u in e["reviewers"])
@@ -395,14 +402,14 @@ def render(prs, source_repo, rules):
         owner_rows.append(f"| @{u} | {', '.join(areas_of[u])} | {load[u]} |")
     if unassigned:
         out += [f"**{unassigned}** with no reviewer requested.", ""]
-    out += [subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
-                        last_col="Waiting", last_key="idle", mid_col="Requested"),
-            details("Code owners", "\n".join(owner_rows)), ""]
+    out += ["\n".join(owner_rows), "",
+            subsections(review, lambda e: e["primary"], AREA_ORDER, open_=True,
+                        last_col="Waiting", last_key="idle", mid_col="Requested")]
     out += [
         "",
-        heading("With authors", len(authors), "The author needs to act: fix a conflict, fix CI, answer a review, or address requested changes."),
+        heading("With authors", len(authors), "The author of the PR has to do something before review can continue."),
         "",
-        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, mid_col="Blocked by"),
+        subsections(authors, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, mid_col="Blocked by"),
         "",
         heading("On hold", len(hold), "Reviewed, but merging is paused on purpose — labelled " + ", ".join(f"`{l}`" for l in HOLD_LABELS) + "."),
         "",
@@ -410,7 +417,7 @@ def render(prs, source_repo, rules):
         "",
         heading("Stale", len(stale), f"With authors, and the author has not pushed or commented in {STALE_DAYS}+ days. Close, or take it over."),
         "",
-        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
+        subsections(stale, lambda e: e["kinds"][0], KIND_ORDER, label=KIND_ACTION.get, last_col="Idle", last_key="idle", mid_col="Blocked by", author=True),
         "",
         heading("Automated", len(bots), "Opened by bots."),
         "",
